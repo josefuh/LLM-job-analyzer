@@ -1,0 +1,14 @@
+pip~=24.3.1
+cffi~=1.17.1
+setuptools~=75.8.2
+PyQt6~=6.8.1
+gevent~=24.11.1
+greenlet~=3.1.1
+certifi~=2025.1.31
+urllib3~=2.3.0
+idna~=3.10
+charset-normalizer~=3.4.1
+pycparser~=2.22
+requests~=2.32.3
+grequests~=0.7.0
+python-dotenv~=1.0.1
