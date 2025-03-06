@@ -1,9 +1,15 @@
+import os
+
 import requests
+from openai import OpenAI
+from dotenv import load_dotenv
 
 class KoboldCPP:
 
     def __init__(self, url=None):
         self.url = url
+        self.deepseek_api_key = os.environ.get("DEEPSEEK_API_KEY")
+
 
     def set_url(self, url):
         self.url = url
@@ -35,7 +41,7 @@ class KoboldCPP:
         results = []
         generate_url = self.url.rstrip("/") + "/generate"
 
-        instructions = "Your task is to read the following text and respond with a comma delimited list of any LLM related keywords sought after.\nIf no LLM related competencies are mentioned, respond with 'None' and nothing else.\nHere comes the text:\n "
+        instructions = "Your task is to read the following text and respond with a comma delimited list of any LLM related keywords sought after regardless of language used.\nIf no LLM related competencies are mentioned, respond with 'None' and nothing else.\nHere comes the text:\n "
 
 
         for description in descriptions:
@@ -72,3 +78,25 @@ class KoboldCPP:
 
         return results
 
+    def deepseek_send_description(self, descriptions, timeout=5):
+
+        try:
+            client = OpenAI(api_key=self.deepseek_api_key, base_url="https://api.deepseek.com")
+
+            for description in descriptions:
+                print("\n\nsending deepseek:" + description)
+                response = client.chat.completions.create(
+                    model="deepseek-chat",
+                    messages=[
+                        {"role": "system", "content": "You a data parser, you will get text sen to you. Your job is to pick out keywords regarding demand for LLMs in job application and send them back as JSON lists of relevant keywords. Handle it regardless of language used, but keep keywords as english translations. Structure for the response should be: json { \"keywords\": [] }."},
+                        {"role": "user", "content": description},
+                    ],
+                    stream=False
+                )
+                print(response.choices[0].message.content)
+
+
+
+        except Exception as e:
+            print(f"DeepSeek API Error: {e}")
+            return None

@@ -1,3 +1,4 @@
+import json
 import sys
 
 from PyQt6.QtCore import QDate
@@ -52,10 +53,10 @@ class Main:
         self.koboldRadio = QRadioButton("koboldCPP")
         self.deepseekRadio = QRadioButton("deepseek")
         self.openAIRadio = QRadioButton("openAI")
-        self.koboldRadio.setChecked(True)
+        self.deepseekRadio.setChecked(True)
 
         # Disabled for now
-        self.deepseekRadio.setDisabled(True)
+        self.koboldRadio.setDisabled(True)
         self.openAIRadio.setDisabled(True)
 
         self.llmButtonGroup = QButtonGroup()
@@ -153,26 +154,37 @@ class Main:
         """
 
     def run_program(self):
+
         apiService = ApiService.ApiService()
         responses = apiService.load()
 
         try:
             descriptions = []
             for response in responses:
-                print(response)
-                # TODO: Gather just the descriptions in an array to pass to the LLM.
+                try:
+                    data = json.loads(response.decode('utf-8'))
+                    description_text = data['hits'][0]['description']['text']
+                    if description_text is not None:
+                        #print(description_text)
+                        descriptions.append(description_text)
+                    else:
+                        print("could not get description")
+                except:
+                    print("could not get description")
+                    pass
 
-            print(descriptions)
-
-            '''
+            #print(descriptions)
             if self.koboldRadio.isChecked():
                 url = self.koboldURLField.text()
                 if not url:
                     return
                 print(f"Running using koboldCPP connection with URL: {url}")
                 kobold = KoboldCPP(url+"/api/v1")
-                kobold.send_description({"respond using japanese", "goodmorning"})
-            '''
+                kobold.send_description(descriptions)
+            if self.deepseekRadio.isChecked():
+                kobold = KoboldCPP()
+                kobold.deepseek_send_description(descriptions)
+
 
 
         except Exception as e:
