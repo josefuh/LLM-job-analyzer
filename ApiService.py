@@ -30,4 +30,6 @@ class ApiService:
                                    for h in self.headers
                                    for q in querystring),size=3)
         resp_list = [r.content for r in response]
-        print(resp_list)
+        return resp_list
+
+
