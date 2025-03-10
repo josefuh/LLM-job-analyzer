@@ -8,7 +8,7 @@ class ApiService:
 
         self.sources = {
             "https://indeed12.p.rapidapi.com/jobs/search",  # indeed
-            "https://jobsearch.api.jobtechdev.se/search",   # platsbanken
+            "https://jobsearch.api.jobtechdev.se/search?q=utvecklare",   # platsbanken
             "https://jsearch.p.rapidapi.com/search"         # jSearch
         }
         api_key = os.environ.get("RAPID_API_KEY")

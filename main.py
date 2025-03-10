@@ -71,19 +71,7 @@ class Main:
         self.koboldURLField.setPlaceholderText("Enter koboldCPP URL")
         self.koboldURLField.setText("http://localhost:5001")
 
-        self.deepseekAPIKeyField = QLineEdit()
-        self.deepseekAPIKeyField.setPlaceholderText("Enter deepseek API key")
-        self.openAIApiKeyField = QLineEdit()
-        self.openAIApiKeyField.setPlaceholderText("Enter openAI API key")
-
-        #Disabled for now
-        self.deepseekAPIKeyField.setDisabled(True)
-        self.openAIApiKeyField.setDisabled(True)
-
-
         llmLayout.addWidget(self.koboldURLField)
-        llmLayout.addWidget(self.deepseekAPIKeyField)
-        llmLayout.addWidget(self.openAIApiKeyField)
 
         self.testConnectionButton = QPushButton("Test Connection")
         #self.testConnectionButton.clicked.connect(self.connect_llm)
@@ -168,9 +156,11 @@ class Main:
                         #print(description_text)
                         descriptions.append(description_text)
                     else:
-                        print("could not get description")
+                        print("no description for:")
+                        print(data)
                 except:
                     print("could not get description")
+                    print(response)
                     pass
 
             #print(descriptions)
