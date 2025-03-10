@@ -1,9 +1,14 @@
+import json
 import sys
 
 from PyQt6.QtCore import QDate
-from PyQt6.QtWidgets import QApplication, QWidget, QLineEdit, QDateEdit, QPushButton, QGridLayout, QLabel, QLayout, \
-    QFormLayout
+from PyQt6.QtWidgets import (
+    QApplication, QWidget, QFormLayout, QLineEdit, QPushButton, QLabel,
+    QDateEdit, QRadioButton, QGroupBox, QVBoxLayout, QButtonGroup
+)
 import ApiService
+from KoboldCPPIntegration import KoboldCPP
+
 
 class Main:
     def __init__(self):
@@ -41,6 +46,50 @@ class Main:
         self.submitButton.clicked.connect(self.test_button)
         layout.addRow(self.submitButton)
 
+        # LLM setup fields
+        llmGroupBox = QGroupBox("LLM Connection:")
+        llmLayout = QVBoxLayout()
+
+        self.koboldRadio = QRadioButton("koboldCPP")
+        self.deepseekRadio = QRadioButton("deepseek")
+        self.openAIRadio = QRadioButton("openAI")
+        self.deepseekRadio.setChecked(True)
+
+        # Disabled for now
+        self.koboldRadio.setDisabled(True)
+        self.openAIRadio.setDisabled(True)
+
+        self.llmButtonGroup = QButtonGroup()
+        self.llmButtonGroup.addButton(self.koboldRadio)
+        self.llmButtonGroup.addButton(self.deepseekRadio)
+        self.llmButtonGroup.addButton(self.openAIRadio)
+        llmLayout.addWidget(self.koboldRadio)
+        llmLayout.addWidget(self.deepseekRadio)
+        llmLayout.addWidget(self.openAIRadio)
+
+        self.koboldURLField = QLineEdit()
+        self.koboldURLField.setPlaceholderText("Enter koboldCPP URL")
+        self.koboldURLField.setText("http://localhost:5001")
+
+        llmLayout.addWidget(self.koboldURLField)
+
+        self.testConnectionButton = QPushButton("Test Connection")
+        #self.testConnectionButton.clicked.connect(self.connect_llm)
+        llmLayout.addWidget(self.testConnectionButton)
+
+        self.runButton = QPushButton("Run")
+        self.runButton.clicked.connect(self.run_program)
+        llmLayout.addWidget(self.runButton)
+
+
+
+
+        llmGroupBox.setLayout(llmLayout)
+        layout.addRow(llmGroupBox)
+
+
+
+
         window.setLayout(layout)
         window.show()
         sys.exit(app.exec())
@@ -48,8 +97,8 @@ class Main:
     def test_button(self):
         print ("skickat")
         self.submitButton.setEnabled(False)
-        # apiService = ApiService.ApiService()
-        # apiService.load()
+        apiService = ApiService.ApiService()
+        apiService.load()
 
     def check_box(self):
         if self.useDate.isChecked():
@@ -60,6 +109,84 @@ class Main:
             self.useDate.setCheckable(True)
             self.startDate.setEnabled(False)
             self.endDate.setEnabled(False)
+
+    def connect_llm(self):
+        try:
+            if self.koboldRadio.isChecked():
+                url = self.koboldURLField.text()
+                if not url:
+                    return
+                print(f"Testing koboldCPP connection with URL: {url}")
+                kobold = KoboldCPP(url+"/api/v1")
+                connected = kobold.check_connection()
+                #print(f"Connected: {connected}")
+                if not connected.index(0):
+                    print("Connection failed")
+                    return
+                else:
+                    print("Connection successful| Version: "+connected.index(1))
+        except:
+            print("Connection failed")
+
+
+
+
+
+        """
+        elif self.deepseekRadio.isChecked():
+            api_key = self.deepseekAPIKeyField.text()
+            print(f"Testing deepseek connection with API key: {api_key}")
+        elif self.openAIRadio.isChecked():
+            api_key = self.openAIApiKeyField.text()
+            print(f"Testing openAI connection with API key: {api_key}")
+        """
+
+    def run_program(self):
+
+        apiService = ApiService.ApiService()
+        responses = apiService.load()
+
+        try:
+            descriptions = []
+            for response in responses:
+                try:
+                    data = json.loads(response.decode('utf-8'))
+                    description_text = data['hits'][0]['description']['text']
+                    if description_text is not None:
+                        #print(description_text)
+                        descriptions.append(description_text)
+                    else:
+                        print("no description for:")
+                        print(data)
+                except:
+                    print("could not get description")
+                    print(response)
+                    pass
+
+            #print(descriptions)
+            if self.koboldRadio.isChecked():
+                url = self.koboldURLField.text()
+                if not url:
+                    return
+                print(f"Running using koboldCPP connection with URL: {url}")
+                kobold = KoboldCPP(url+"/api/v1")
+                kobold.send_description(descriptions)
+            if self.deepseekRadio.isChecked():
+                kobold = KoboldCPP()
+                kobold.deepseek_send_description(descriptions)
+
+
+
+        except Exception as e:
+            print("Connection failed:")
+
+
+
+
+
+
+
+
 
 if __name__ == '__main__':
     Main()

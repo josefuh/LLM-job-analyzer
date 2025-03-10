@@ -8,7 +8,7 @@ class ApiService:
 
         self.sources = {
             "https://indeed12.p.rapidapi.com/jobs/search",  # indeed
-            "https://jobsearch.api.jobtechdev.se/search",   # platsbanken
+            "https://jobsearch.api.jobtechdev.se/search?q=utvecklare",   # platsbanken
             "https://jsearch.p.rapidapi.com/search"         # jSearch
         }
         api_key = os.environ.get("RAPID_API_KEY")
@@ -30,4 +30,6 @@ class ApiService:
                                    for h in self.headers
                                    for q in querystring),size=3)
         resp_list = [r.content for r in response]
-        print(resp_list)
+        return resp_list
+
+
