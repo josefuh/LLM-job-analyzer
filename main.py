@@ -4,7 +4,7 @@ import sys
 from PyQt6.QtCore import QDate
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QFormLayout, QLineEdit, QPushButton, QLabel,
-    QDateEdit, QRadioButton, QGroupBox, QVBoxLayout, QButtonGroup
+    QDateEdit, QRadioButton, QGroupBox, QVBoxLayout, QButtonGroup, QCheckBox
 )
 import ApiService
 from KoboldCPPIntegration import KoboldCPP
@@ -38,13 +38,20 @@ class Main:
         layout.addRow("start-date:", self.startDate)
         layout.addRow("end-date:", self.endDate)
 
+        graphTypeBox = QGroupBox("Graph types")
+        graphTypeLayout = QVBoxLayout()
+        self.pieBox = QCheckBox("pie")
+        self.stapleBox = QCheckBox("staple")
+        self.timeBox = QCheckBox("time")
+        graphTypeLayout.addWidget(self.pieBox)
+        graphTypeLayout.addWidget(self.stapleBox)
+        graphTypeLayout.addWidget(self.timeBox)
+        graphTypeBox.setLayout(graphTypeLayout)
+        layout.addRow(graphTypeBox)
+
         self.extraApis = QLineEdit()
         layout.addRow(QLabel("additional API:s (separate with ','):"))
         layout.addRow(self.extraApis)
-
-        self.submitButton = QPushButton("start")
-        self.submitButton.clicked.connect(self.test_button)
-        layout.addRow(self.submitButton)
 
         # LLM setup fields
         llmGroupBox = QGroupBox("LLM Connection:")
@@ -81,24 +88,12 @@ class Main:
         self.runButton.clicked.connect(self.run_program)
         llmLayout.addWidget(self.runButton)
 
-
-
-
         llmGroupBox.setLayout(llmLayout)
         layout.addRow(llmGroupBox)
-
-
-
 
         window.setLayout(layout)
         window.show()
         sys.exit(app.exec())
-
-    def test_button(self):
-        print ("skickat")
-        self.submitButton.setEnabled(False)
-        apiService = ApiService.ApiService()
-        apiService.load()
 
     def check_box(self):
         if self.useDate.isChecked():
