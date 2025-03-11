@@ -15,7 +15,8 @@ class ApiService:
         self.headers = [
             {"x-rapidapi-key": api_key,
             "x-rapidapi-host": "indeed12.p.rapidapi.com"},
-            {},
+            {'accept': 'application/json', 'x-feature-freetext-bool-method': 'or',
+             'x-feature-disable-smart-freetext': 'true'},
             {"x-rapidapi-key": api_key,
              "x-rapidapi-host": "jsearch.p.rapidapi.com"}
         ]
@@ -23,13 +24,16 @@ class ApiService:
     def load(self):
         querystring = [
             {"query":"software developer"},
-            {"occupation-name": {"mjukvaruutvecklare", "IT"}},
-            {"query": "software developer"}
+            {"limit": "1"},
+            {"query": "software developer", "date_posted":"all"}
         ]
-        response = grequests.imap((grequests.get(u, headers=h, params=q) for u in self.sources
-                                   for h in self.headers
-                                   for q in querystring),size=3)
-        resp_list = [r.content for r in response]
-        return resp_list
 
+        #for (url, header, query) in zip(self.sources, self.headers, querystring):
+        #    reqs.append(grequests.get(url, headers=header, params=query))
+
+        reqs = [grequests.get(url, headers=h, params=q) for(url, h, q) in zip(self.sources, self.headers, querystring)]
+        response = grequests.imap(reqs, size=3)
+        # respList = [r.content for r in response]
+
+        return [r.content for r in response]
 
