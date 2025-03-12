@@ -4,24 +4,26 @@ import sys
 from PyQt6.QtCore import QDate
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QFormLayout, QLineEdit, QPushButton, QLabel,
-    QDateEdit, QRadioButton, QGroupBox, QVBoxLayout, QButtonGroup, QCheckBox
+    QDateEdit, QRadioButton, QGroupBox, QVBoxLayout, QButtonGroup, QCheckBox, QMainWindow
 )
 import ApiService
+import DataAnalysis
 from KoboldCPPIntegration import KoboldCPP
 
 
-class Main:
-    def __init__(self):
-        app = QApplication([])
+class Main(QMainWindow):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
         window = QWidget()
 
-        window.setWindowTitle("LLM job analyzer")
-        window.setGeometry(100, 100, 400, 600)
+        self.setWindowTitle("LLM job analyzer")
+        self.setGeometry(100, 100, 400, 600)
 
-        layout = QFormLayout()
+        self.layout = QFormLayout()
 
         self.locationField = QLineEdit()
-        layout.addRow("location:", self.locationField)
+        self.layout.addRow("location:", self.locationField)
 
         self.useDate = QPushButton("Use date")
         self.useDate.setCheckable(True)
@@ -34,9 +36,9 @@ class Main:
         self.endDate = QDateEdit(calendarPopup=True)
         self.endDate.setMinimumDate(QDate(2016, 1, 1))
         self.endDate.setMaximumDate(QDate.currentDate())
-        layout.addRow(self.useDate)
-        layout.addRow("start-date:", self.startDate)
-        layout.addRow("end-date:", self.endDate)
+        self.layout.addRow(self.useDate)
+        self.layout.addRow("start-date:", self.startDate)
+        self.layout.addRow("end-date:", self.endDate)
 
         graphTypeBox = QGroupBox("Graph types")
         graphTypeLayout = QVBoxLayout()
@@ -47,11 +49,11 @@ class Main:
         graphTypeLayout.addWidget(self.stapleBox)
         graphTypeLayout.addWidget(self.timeBox)
         graphTypeBox.setLayout(graphTypeLayout)
-        layout.addRow(graphTypeBox)
+        self.layout.addRow(graphTypeBox)
 
         self.extraApis = QLineEdit()
-        layout.addRow(QLabel("additional API:s (separate with ','):"))
-        layout.addRow(self.extraApis)
+        self.layout.addRow(QLabel("additional API:s (separate with ','):"))
+        self.layout.addRow(self.extraApis)
 
         # LLM setup fields
         llmGroupBox = QGroupBox("LLM Connection:")
@@ -89,11 +91,14 @@ class Main:
         llmLayout.addWidget(self.runButton)
 
         llmGroupBox.setLayout(llmLayout)
-        layout.addRow(llmGroupBox)
+        self.layout.addRow(llmGroupBox)
 
-        window.setLayout(layout)
-        window.show()
-        sys.exit(app.exec())
+        self.canvas = DataAnalysis.DataAnalysis()
+        self.layout.addRow(self.canvas)
+
+        window.setLayout(self.layout)
+        self.setCentralWidget(window)
+
 
     def check_box(self):
         if self.useDate.isChecked():
@@ -137,12 +142,13 @@ class Main:
         """
 
     def run_program(self):
-
+        self.runButton.setEnabled(False)
         apiService = ApiService.ApiService()
         responses = apiService.load()
 
         try:
             descriptions = []
+            dates = []
             for response in responses:
                 try:
                     data = json.loads(response.decode('utf-8'))
@@ -153,12 +159,34 @@ class Main:
                     else:
                         print("no description for:")
                         print(data)
+
+                    date_text = data['hits'][0]['publication_date']
+                    if date_text is not None:
+                        dates.append(date_text)
+                    else:
+                        print(data)
                 except:
                     print("could not get description")
                     print(response)
                     pass
 
-            #print(descriptions)
+            # print((descriptions, dates))
+            examples = []
+            for date in dates: # TODO: byt ut innehållet i 'skills' med data från LLM
+                examples.append(json.dumps({"skills":["abc", "cba", "zxc"], "date":date}))
+                examples.append(json.dumps({"skills":["abc"], "date":"2025-04-06T11:56:47"}))
+                examples.append(json.dumps({"skills": ["cba"], "date": "2025-07-06T11:56:47"}))
+
+            #layout = QVBoxLayout()
+            self.canvas.load_data(examples, {"pie":self.pieBox.isChecked(),
+                                                "time":self.timeBox.isChecked(),
+                                                "staple":self.stapleBox.isChecked()})
+
+            self.canvas.plot_data()
+            #layout.addWidget(analysis.plot_data())
+            #self.window.setLayout(layout)
+
+            """
             if self.koboldRadio.isChecked():
                 url = self.koboldURLField.text()
                 if not url:
@@ -169,21 +197,22 @@ class Main:
             if self.deepseekRadio.isChecked():
                 kobold = KoboldCPP()
                 kobold.deepseek_send_description(descriptions)
+            """
 
 
 
         except Exception as e:
             print("Connection failed:")
 
-
-
-
-
+        self.runButton.setEnabled(True)
 
 
 
 
 if __name__ == '__main__':
-    Main()
+    app = QApplication([])
+    window = Main()
+    window.show()
+    app.exec()
 
 
