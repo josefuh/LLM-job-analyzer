@@ -3,7 +3,7 @@ import sys
 
 from PyQt6.QtCore import QDate
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QFormLayout, QLineEdit, QPushButton, QLabel,
+    QApplication, QWidget, QFormLayout, QLineEdit, QPushButton, QScrollArea,
     QDateEdit, QRadioButton, QGroupBox, QVBoxLayout, QButtonGroup, QCheckBox, QMainWindow
 )
 import ApiService
@@ -18,7 +18,7 @@ class Main(QMainWindow):
         window = QWidget()
 
         self.setWindowTitle("LLM job analyzer")
-        self.setGeometry(100, 100, 400, 600)
+        self.setGeometry(100, 100, 800, 600)
 
         self.layout = QFormLayout()
 
@@ -45,15 +45,11 @@ class Main(QMainWindow):
         self.pieBox = QCheckBox("pie")
         self.stapleBox = QCheckBox("staple")
         self.timeBox = QCheckBox("time")
-        graphTypeLayout.addWidget(self.pieBox)
-        graphTypeLayout.addWidget(self.stapleBox)
         graphTypeLayout.addWidget(self.timeBox)
+        graphTypeLayout.addWidget(self.stapleBox)
+        graphTypeLayout.addWidget(self.pieBox)
         graphTypeBox.setLayout(graphTypeLayout)
         self.layout.addRow(graphTypeBox)
-
-        self.extraApis = QLineEdit()
-        self.layout.addRow(QLabel("additional API:s (separate with ','):"))
-        self.layout.addRow(self.extraApis)
 
         # LLM setup fields
         llmGroupBox = QGroupBox("LLM Connection:")
@@ -94,11 +90,17 @@ class Main(QMainWindow):
         self.layout.addRow(llmGroupBox)
 
         self.canvas = DataAnalysis.DataAnalysis()
-        self.layout.addRow(self.canvas)
+        self.canvas.fig.clf()
+        #self.canvas.minimumSizeHint()
+        scroll = QScrollArea()
+        scroll.setWidget(self.canvas)
+        self.layout.addRow(scroll)
 
         window.setLayout(self.layout)
         self.setCentralWidget(window)
 
+    def resizeEvent(self,event):
+        self.canvas.resize(event.size())
 
     def check_box(self):
         if self.useDate.isChecked():
@@ -170,23 +172,42 @@ class Main(QMainWindow):
                     print(response)
                     pass
 
-            # print((descriptions, dates))
-            examples = []
-            for date in dates: # TODO: byt ut innehållet i 'skills' med data från LLM
-                examples.append(json.dumps({"skills":["abc", "cba", "zxc"], "date":date}))
-                examples.append(json.dumps({"skills":["abc"], "date":"2025-04-06T11:56:47"}))
-                examples.append(json.dumps({"skills": ["cba"], "date": "2025-07-06T11:56:47"}))
-
-            #layout = QVBoxLayout()
-            self.canvas.load_data(examples, {"pie":self.pieBox.isChecked(),
-                                                "time":self.timeBox.isChecked(),
-                                                "staple":self.stapleBox.isChecked()})
-
-            self.canvas.plot_data()
-            #layout.addWidget(analysis.plot_data())
-            #self.window.setLayout(layout)
+           # test array
+            llm_responses = ["""
+            ```json
+                {
+          "keywords": [
+            {"keyword": "development", "LLMRelated": "no"},
+            {"keyword": "problem-solving", "LLMRelated": "no"},
+            {"keyword": "frontend", "LLMRelated": "no"},
+            {"keyword": "backend", "LLMRelated": "no"},
+            {"keyword": "Javascript", "LLMRelated": "no"},
+            {"keyword": "React", "LLMRelated": "no"},
+            {"keyword": "Typescript", "LLMRelated": "no"},
+            {"keyword": "Functional Programming", "LLMRelated": "no"},
+            {"keyword": "OOP", "LLMRelated": "no"},
+            {"keyword": "PHP", "LLMRelated": "no"},
+            {"keyword": "SQL", "LLMRelated": "no"},
+            {"keyword": "API integrations", "LLMRelated": "no"},
+            {"keyword": "data security", "LLMRelated": "no"},
+            {"keyword": "full stack", "LLMRelated": "no"},
+            {"keyword": "MVC", "LLMRelated": "no"},
+            {"keyword": "Laravel", "LLMRelated": "no"},
+            {"keyword": "Ruby on Rails", "LLMRelated": "no"},
+            {"keyword": "Django", "LLMRelated": "no"},
+            {"keyword": "ASP.NET MVC", "LLMRelated": "no"},
+            {"keyword": "MongoDB", "LLMRelated": "no"},
+            {"keyword": "NoSQL", "LLMRelated": "no"},
+            {"keyword": "GraphQL", "LLMRelated": "no"},
+            {"keyword": "database design", "LLMRelated": "no"},
+            {"keyword": "Websockets", "LLMRelated": "no"}
+              ]
+            }
+            ```
+            """]
 
             """
+            llm_responses = []
             if self.koboldRadio.isChecked():
                 url = self.koboldURLField.text()
                 if not url:
@@ -196,13 +217,28 @@ class Main(QMainWindow):
                 kobold.send_description(descriptions)
             if self.deepseekRadio.isChecked():
                 kobold = KoboldCPP()
-                kobold.deepseek_send_description(descriptions)
+                llm_responses = kobold.deepseek_send_description(descriptions)
             """
+            index = "json"
 
+            data = []
+            i = 0
+            for llm_response in llm_responses:
+                llm_response = llm_response[llm_response.find(index) + len(index) + 1:]
+                llm_response = llm_response[0:llm_response.rfind("```")]
+                json_data = json.loads(llm_response)
 
+                data.append(json.dumps({"skills":json_data['keywords'], "date": dates[i]}))
+                i +=1
+
+            self.canvas.load_data(data, {"pie": self.pieBox.isChecked(),
+                                             "time": self.timeBox.isChecked(),
+                                             "bar": self.stapleBox.isChecked()})
+
+            self.canvas.plot_data()
 
         except Exception as e:
-            print("Connection failed:")
+            print(e)
 
         self.runButton.setEnabled(True)
 

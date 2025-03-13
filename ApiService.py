@@ -24,7 +24,7 @@ class ApiService:
     def load(self):
         querystring = [
             {"query":"software developer"},
-            {"limit": "100"},
+            {"limit":2},
             {"query": "software developer", "date_posted":"all"}
         ]
 
