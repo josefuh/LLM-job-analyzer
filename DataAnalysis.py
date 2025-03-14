@@ -1,3 +1,5 @@
+from ftplib import all_errors
+
 import matplotlib
 import numpy as np
 import pandas as pd
@@ -33,7 +35,7 @@ class DataAnalysis(FigureCanvasQTAgg):
             graphtype = {""}
 
         self.fig, (self.pie, self.bar, self.time) = plt.subplots(3, 1,sharey=False, sharex=False)
-
+        self.fig.tight_layout(h_pad=2.5)
         super().__init__(self.fig)
 
         self.graphtype = graphtype
@@ -49,33 +51,27 @@ class DataAnalysis(FigureCanvasQTAgg):
         :return: created graphs
         """
 
+        plt.cla()
         plt.clf()
-        y = np.array([35, 25])
-        """
-        plt.subplot(3, 1, 1)
-        self.time = plt.plot(1, 1, y)
-        plt.subplot(3, 1, 2)
-        self.bar = plt.bar(y,height=50)
-        plt.subplot(3, 1, 3)
-        self.pie = plt.pie(y, labels=self.results)
-        """
 
-        skills = []
+        all_skills = []
+        llm_skills = []
+
         dates = []
         for json_data in self.results:
             raw =json.loads(''.join(json_data))
+
             for skill in raw['skills']:
-                skills.append(skill)
+
+                if skill['LLMRelated'] == "yes":
+                    llm_skills.append(skill['keyword'])
+                all_skills.append(skill['keyword'])
                 dates.append(raw['date'])
 
-        data = {"skills":skills, "date":dates}
-        print(data)
-        if not self.graphtype["pie"] and not self.graphtype["time"] and not self.graphtype["staple"]:
-            return
+        data = {"skills":all_skills, "date":dates}
 
-        if self.graphtype["pie"]:
-            print("pie")
-            pass
+        if not self.graphtype["pie"] and not self.graphtype["time"] and not self.graphtype["bar"]:
+            return
 
         if self.graphtype["time"]:
             plt.subplot(3, 1, 1)
@@ -85,21 +81,48 @@ class DataAnalysis(FigureCanvasQTAgg):
 
             dataframe.reset_index()
             occurrences = {}
-            for skill in set(skills):
+            for skill in set(all_skills):
                 occurrences[skill] = []
-
 
             for index,row in dataframe.iterrows():
                 occurrences[row['skills']].append(row['date'])
 
             for entry in occurrences:
                 plt.plot(occurrences[entry],range(occurrences[entry].__len__()), label=entry)
-            plt.legend()
+            plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05),
+          fancybox=True, shadow=True, ncol=10)
 
-            pass
 
-        if self.graphtype["staple"]:
-            print("staple")
-            pass
+        if self.graphtype["bar"]:
+            plt.subplot(3, 1, 2)
+            dataframe = pd.DataFrame(data)
+            total = dataframe.groupby(dataframe['skills']).value_counts().values.sum()
+            total_frame = dataframe.groupby(['skills']).count().values
+
+            unique = list(set(all_skills))
+            plt.bar(unique,[x for l in total_frame for x in l], width=0.3) # [x for l in total_frame for x in l]
+            plt.xticks(rotation=90)
+
+        if self.graphtype["pie"]:
+            plt.subplot(3, 1, 3)
+            temp = [len([item for item in all_skills if item not in llm_skills]), len(llm_skills)]
+            total = sum(temp)
+
+            dataframe = np.array(temp)
+            plt.pie(dataframe, labels=["non-llm skills", "llm skills"], autopct=(lambda x: '{:.1f}%\n{:.0f}'.format(x, total*x/100)))
+
+            # extra pie chart för att se alla skills
+            """
+            plt.subplot(3, 2, 4)
+
+            dataframe = pd.DataFrame(data)
+            total = dataframe.groupby(dataframe['skills']).value_counts().values.sum()
+            total_frame = dataframe.groupby(['skills']).count().values
+            #total = w.sum()
+
+            unique = list(set(all_skills))
+            plt.pie([x for l in total_frame for x in l],labels=unique,autopct=(lambda x: '{:.1f}%\n{:.0f}'.format(x, total*x/100)))
+            #plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+            """
 
         self.draw()

@@ -82,19 +82,21 @@ class KoboldCPP:
 
         try:
             client = OpenAI(api_key=self.deepseek_api_key, base_url="https://api.deepseek.com")
-
+            results = []
             for description in descriptions:
                 print("\n\nsending deepseek:" + description)
                 response = client.chat.completions.create(
                     model="deepseek-chat",
                     messages=[
-                        {"role": "system", "content": "You a data parser, you will get text sen to you. Your job is to pick out keywords regarding demand for LLMs in job application and send them back as JSON lists of relevant keywords. Handle it regardless of language used, but keep keywords as english translations. Structure for the response should be: json { \"keywords\": [] }."},
+                        # {"role": "system", "content": "You a data parser, you will get text sen to you. Your job is to pick out keywords regarding demand for LLMs in job application and send them back as JSON lists of relevant keywords. Handle it regardless of language used, but keep keywords as english translations. Structure for the response should be: json { \"keywords\": [] }."},
+                        {"role": "system", "content": "You a data parser, you will get text sent to you. Your job is to pick out keywords regarding demand for LLMs in job application and send them back as JSON lists of relevant keywords. Handle it regardless of language used, but keep keywords as english translations. Structure for the response should be: json { \"keywords\": [{\"keyword\":\"example keyword\",\"LLMRelated\":\"yes\"}] }."},
                         {"role": "user", "content": description},
                     ],
                     stream=False
                 )
-                print(response.choices[0].message.content)
-
+                #print(response.choices[0].message.content)
+                results.append(response.choices[0].message.content)
+            return results
 
 
         except Exception as e:
