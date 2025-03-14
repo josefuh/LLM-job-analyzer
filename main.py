@@ -25,16 +25,18 @@ class Main(QMainWindow):
         self.locationField = QLineEdit()
         self.layout.addRow("location:", self.locationField)
 
-        self.useDate = QPushButton("Use date")
-        self.useDate.setCheckable(True)
+        #self.useDate = QPushButton("Use date")
+        #self.useDate.setCheckable(True)
+        #self.useDate.clicked.connect(self.check_box)
+        self.useDate = QCheckBox("Use date")
+        self.useDate.setChecked(True)
         self.useDate.clicked.connect(self.check_box)
-
         self.startDate = QDateEdit(calendarPopup=True)
         self.startDate.setMinimumDate(QDate(2016, 1,1))
         self.startDate.setMaximumDate(QDate.currentDate())
 
         self.endDate = QDateEdit(calendarPopup=True)
-        self.endDate.setMinimumDate(QDate(2016, 1, 1))
+        self.endDate.setMinimumDate(QDate(2016, 1, 2))
         self.endDate.setMaximumDate(QDate.currentDate())
         self.layout.addRow(self.useDate)
         self.layout.addRow("start-date:", self.startDate)
@@ -104,11 +106,11 @@ class Main(QMainWindow):
 
     def check_box(self):
         if self.useDate.isChecked():
-            self.useDate.setCheckable(False)
+            #self.useDate.setCheckable(False)
             self.startDate.setEnabled(True)
             self.endDate.setEnabled(True)
         else:
-            self.useDate.setCheckable(True)
+            #self.useDate.setCheckable(True)
             self.startDate.setEnabled(False)
             self.endDate.setEnabled(False)
 
@@ -145,33 +147,90 @@ class Main(QMainWindow):
 
     def run_program(self):
         self.runButton.setEnabled(False)
-        apiService = ApiService.ApiService()
+        print(self.useDate.isChecked())
+        apiService = ApiService.ApiService(self.locationField.text(), self.startDate.date(), self.endDate.date(), self.useDate.isChecked())
         responses = apiService.load()
 
         try:
             descriptions = []
             dates = []
+            ids = []
             for response in responses:
                 try:
                     data = json.loads(response.decode('utf-8'))
-                    description_text = data['hits'][0]['description']['text']
-                    if description_text is not None:
-                        #print(description_text)
-                        descriptions.append(description_text)
-                    else:
-                        print("no description for:")
-                        print(data)
+                    # JSearch
+                    if "data" in data:
+                        for hit in data["data"]:
+                            description_text = hit['job_description']
+                            if description_text is not None:
+                                # print(description_text)
+                                descriptions.append(description_text)
+                            else:
+                                print("no description for:")
+                                print(data)
 
-                    date_text = data['hits'][0]['publication_date']
-                    if date_text is not None:
-                        dates.append(date_text)
-                    else:
-                        print(data)
+                            date_text = hit['job_posted_at_datetime_utc']
+                            if date_text is not None:
+                                dates.append(date_text)
+                            else:
+                                print(data)
+
+                            job_id = hit['job_id']
+                            if job_id is not None and job_id not in ids:
+                                ids.append(job_id)
+                            else:
+                                print(data)
+                    # platsbanken, job posting
+                    elif "hits" in data:
+                        for hit in data['hits']:
+                            # job posting
+                            if "description_html" in hit:
+                                description_text = hit['description_html']
+                                if description_text is not None:
+                                    # print(description_text)
+                                    descriptions.append(description_text)
+                                else:
+                                    print("no description for:")
+                                    print(data)
+
+                                date_text = hit['date_posted']
+                                if date_text is not None:
+                                    dates.append(date_text)
+                                else:
+                                    print(data)
+
+                                job_id = hit['id']
+                                if job_id is not None and job_id not in ids:
+                                    ids.append(job_id)
+                                else:
+                                    print(data)
+                            # platsbanken
+                            else:
+                                description_text = hit['description']['text']
+                                if description_text is not None:
+                                    #print(description_text)
+                                    descriptions.append(description_text)
+                                else:
+                                    print("no description for:")
+                                    print(data)
+
+                                date_text = hit['publication_date']
+                                if date_text is not None:
+                                    dates.append(date_text)
+                                else:
+                                    print(data)
+
+                                job_id = hit['id']
+                                if job_id is not None and job_id not in ids:
+                                    ids.append(job_id)
+                                else:
+                                    print(data)
                 except:
                     print("could not get description")
                     print(response)
                     pass
 
+            print(descriptions)
            # test array
             llm_responses = ["""
             ```json
