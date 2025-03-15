@@ -88,7 +88,11 @@ class DataAnalysis(FigureCanvasQTAgg):
                 occurrences[row['skills']].append(row['date'])
 
             for entry in occurrences:
-                plt.plot(occurrences[entry],range(occurrences[entry].__len__()), label=entry)
+                style = "dotted"
+                if entry in llm_skills:
+                    style = "solid"
+
+                plt.plot(occurrences[entry],range(occurrences[entry].__len__()), label=entry, ls=style)
             plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05),
           fancybox=True, shadow=True, ncol=10)
 
@@ -99,8 +103,23 @@ class DataAnalysis(FigureCanvasQTAgg):
             total = dataframe.groupby(dataframe['skills']).value_counts().values.sum()
             total_frame = dataframe.groupby(['skills']).count().values
 
+            colors = []
+            d = {}
             unique = list(set(all_skills))
-            plt.bar(unique,[x for l in total_frame for x in l], width=0.3) # [x for l in total_frame for x in l]
+            for skill in unique:
+                d[skill] = 0
+                if skill in llm_skills:
+                    colors.append("tab:red")
+                    continue
+                colors.append("tab:blue")
+
+            for skill in dataframe['skills']:
+                d[skill] += 1
+
+
+
+            #plt.bar(unique,[x for l in total_frame for x in l], width=0.3, color=colors)
+            plt.bar(*zip(*d.items()), width=0.3, color=colors)
             plt.xticks(rotation=90)
 
         if self.graphtype["pie"]:

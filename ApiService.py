@@ -19,7 +19,7 @@ class ApiService:
         else:
             self.start_date =  urllib.parse.quote(QDate(2025,1,1).toString(format=Qt.DateFormat.ISODateWithMs)+"T00:00:00")
             self.end_date = urllib.parse.quote(QDate().currentDate().toString(format=Qt.DateFormat.ISODateWithMs)+"T00:00:00")
-        print(query)
+
         self.sources = {
             "https://indeed12.p.rapidapi.com/jobs/search",                      # indeed
             "https://jobsearch.api.jobtechdev.se/search?"+query+"&limit=100",   # platsbanken
@@ -47,7 +47,6 @@ class ApiService:
             querystring[0].update({"location":self.location})
             querystring[2].update({"location_filter":self.location})
 
-        print(querystring)
         reqs = [grequests.get(url, headers=h, params=q) for(url, h, q) in zip(self.sources, self.headers, querystring)]
         response = grequests.imap(reqs, size=3)
 
