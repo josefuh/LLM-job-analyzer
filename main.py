@@ -147,7 +147,6 @@ class Main(QMainWindow):
 
     def run_program(self):
         self.runButton.setEnabled(False)
-        print(self.useDate.isChecked())
         apiService = ApiService.ApiService(self.locationField.text(), self.startDate.date(), self.endDate.date(), self.useDate.isChecked())
         responses = apiService.load()
 
@@ -230,7 +229,7 @@ class Main(QMainWindow):
                     print(response)
                     pass
 
-            print(descriptions)
+            #print(descriptions)
            # test array
             llm_responses = ["""
             ```json
@@ -242,11 +241,12 @@ class Main(QMainWindow):
             {"keyword": "backend", "LLMRelated": "no"},
             {"keyword": "Javascript", "LLMRelated": "no"},
             {"keyword": "React", "LLMRelated": "no"},
-            {"keyword": "Typescript", "LLMRelated": "no"},
+            {"keyword": "Typescript", "LLMRelated": "yes"},
+            {"keyword": "Typescript", "LLMRelated": "yes"},
             {"keyword": "Functional Programming", "LLMRelated": "no"},
             {"keyword": "OOP", "LLMRelated": "no"},
             {"keyword": "PHP", "LLMRelated": "no"},
-            {"keyword": "SQL", "LLMRelated": "no"},
+            {"keyword": "SQL", "LLMRelated": "yes"},
             {"keyword": "API integrations", "LLMRelated": "no"},
             {"keyword": "data security", "LLMRelated": "no"},
             {"keyword": "full stack", "LLMRelated": "no"},
