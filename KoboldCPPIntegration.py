@@ -5,16 +5,33 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 class KoboldCPP:
+    """ Class used to send and retrieve data from an LLM
+    via API:s.
 
+    Parameters
+    ----------
+    url: str
+        url to koboldCPP
+    """
     def __init__(self, url=None):
         self.url = url
         self.deepseek_api_key = os.environ.get("DEEPSEEK_API_KEY")
 
 
     def set_url(self, url):
+        """ method to set the url to koboldCPP
+
+        :param url: string
+        """
         self.url = url
 
     def check_connection(self, timeout=5):
+        """ Method used to check the connection to koboldCPP
+
+        :param timeout: int value representing the timeout for the
+        test request.
+        :return: bool indicating whether the connection was successful or not.
+        """
         if not self.url:
             return False
 
@@ -38,6 +55,12 @@ class KoboldCPP:
             return False, None
 
     def send_description(self, descriptions, timeout=5):
+        """ Method used to send gathered descriptions to koboldCPP
+
+        :param descriptions: array of text job-descriptions
+        :param timeout: int value representing the timeout for the request
+        :return: array of identified skills.
+        """
         results = []
         generate_url = self.url.rstrip("/") + "/generate"
 
@@ -79,7 +102,12 @@ class KoboldCPP:
         return results
 
     def deepseek_send_description(self, descriptions, timeout=5):
+        """ Method used to send gathered descriptions to the DeepSeek API.
 
+        :param descriptions: array of text job-descriptions
+        :param timeout: int value representing the timeout for the request
+        :return: array of identified skills.
+        """
         try:
             client = OpenAI(api_key=self.deepseek_api_key, base_url="https://api.deepseek.com")
             results = []

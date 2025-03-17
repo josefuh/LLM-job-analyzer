@@ -9,6 +9,7 @@ import json
 
 matplotlib.use('QtAgg')
 
+
 class DataAnalysis(FigureCanvasQTAgg):
     """ Class used to produce graphs to visualize the results
     
@@ -34,7 +35,7 @@ class DataAnalysis(FigureCanvasQTAgg):
         if graphtype is None:
             graphtype = {""}
 
-        self.fig, (self.pie, self.bar, self.time) = plt.subplots(3, 1,sharey=False, sharex=False)
+        self.fig, (self.pie, self.bar, self.time) = plt.subplots(3, 1, sharey=False, sharex=False)
         self.fig.tight_layout(h_pad=2.5)
         super().__init__(self.fig)
 
@@ -59,7 +60,7 @@ class DataAnalysis(FigureCanvasQTAgg):
 
         dates = []
         for json_data in self.results:
-            raw =json.loads(''.join(json_data))
+            raw = json.loads(''.join(json_data))
 
             for skill in raw['skills']:
 
@@ -68,7 +69,7 @@ class DataAnalysis(FigureCanvasQTAgg):
                 all_skills.append(skill['keyword'])
                 dates.append(raw['date'])
 
-        data = {"skills":all_skills, "date":dates}
+        data = {"skills": all_skills, "date": dates}
 
         if not self.graphtype["pie"] and not self.graphtype["time"] and not self.graphtype["bar"]:
             return
@@ -84,7 +85,7 @@ class DataAnalysis(FigureCanvasQTAgg):
             for skill in set(all_skills):
                 occurrences[skill] = []
 
-            for index,row in dataframe.iterrows():
+            for index, row in dataframe.iterrows():
                 occurrences[row['skills']].append(row['date'])
 
             for entry in occurrences:
@@ -92,10 +93,9 @@ class DataAnalysis(FigureCanvasQTAgg):
                 if entry in llm_skills:
                     style = "solid"
 
-                plt.plot(occurrences[entry],range(occurrences[entry].__len__()), label=entry, ls=style)
+                plt.plot(occurrences[entry], range(occurrences[entry].__len__()), label=entry, ls=style)
             plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05),
-          fancybox=True, shadow=True, ncol=10)
-
+                       fancybox=True, shadow=True, ncol=10)
 
         if self.graphtype["bar"]:
             plt.subplot(3, 1, 2)
@@ -116,8 +116,6 @@ class DataAnalysis(FigureCanvasQTAgg):
             for skill in dataframe['skills']:
                 d[skill] += 1
 
-
-
             #plt.bar(unique,[x for l in total_frame for x in l], width=0.3, color=colors)
             plt.bar(*zip(*d.items()), width=0.3, color=colors)
             plt.xticks(rotation=90)
@@ -128,7 +126,8 @@ class DataAnalysis(FigureCanvasQTAgg):
             total = sum(temp)
 
             dataframe = np.array(temp)
-            plt.pie(dataframe, labels=["non-llm skills", "llm skills"], autopct=(lambda x: '{:.1f}%\n{:.0f}'.format(x, total*x/100)))
+            plt.pie(dataframe, labels=["non-llm skills", "llm skills"],
+                    autopct=(lambda x: '{:.1f}%\n{:.0f}'.format(x, total * x / 100)))
 
             # extra pie chart för att se alla skills
             """
