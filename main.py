@@ -12,6 +12,9 @@ from KoboldCPPIntegration import KoboldCPP
 
 
 class Main(QMainWindow):
+    """ Main class for the program, which extends the QMainWindow
+    class to create a GUI containing the form and graphs.
+    """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -25,9 +28,6 @@ class Main(QMainWindow):
         self.locationField = QLineEdit()
         self.layout.addRow("location:", self.locationField)
 
-        #self.useDate = QPushButton("Use date")
-        #self.useDate.setCheckable(True)
-        #self.useDate.clicked.connect(self.check_box)
         self.useDate = QCheckBox("Use date")
         self.useDate.setChecked(True)
         self.useDate.clicked.connect(self.check_box)
@@ -45,7 +45,7 @@ class Main(QMainWindow):
         graphTypeBox = QGroupBox("Graph types")
         graphTypeLayout = QVBoxLayout()
         self.pieBox = QCheckBox("pie")
-        self.stapleBox = QCheckBox("staple")
+        self.stapleBox = QCheckBox("bar")
         self.timeBox = QCheckBox("time")
         graphTypeLayout.addWidget(self.timeBox)
         graphTypeLayout.addWidget(self.stapleBox)
@@ -102,9 +102,20 @@ class Main(QMainWindow):
         self.setCentralWidget(window)
 
     def resizeEvent(self,event):
+        """
+        Window event handler called when the window is resized.
+        Is used to resize the canvas that the graphs are printed
+        in.
+        :param event: reSizeEvent
+        """
         self.canvas.resize(event.size())
 
     def check_box(self):
+        """ Method for enabling or disabling the
+        start and end date fields when clicking the
+        use date button.
+
+        """
         if self.useDate.isChecked():
             #self.useDate.setCheckable(False)
             self.startDate.setEnabled(True)
@@ -115,6 +126,8 @@ class Main(QMainWindow):
             self.endDate.setEnabled(False)
 
     def connect_llm(self):
+        """ Method for testing the connection to KoboldCPP
+        """
         try:
             if self.koboldRadio.isChecked():
                 url = self.koboldURLField.text()
@@ -146,6 +159,10 @@ class Main(QMainWindow):
         """
 
     def run_program(self):
+        """ method for getting and retrieving job postings from APIService,
+        which is then passed to the LLM module that identifies skills. Lastly
+        the data is sent to the DataAnalysis module which creates graphs.
+        """
         self.runButton.setEnabled(False)
         apiService = ApiService.ApiService(self.locationField.text(), self.startDate.date(), self.endDate.date(), self.useDate.isChecked())
         responses = apiService.load()
