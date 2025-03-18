@@ -139,7 +139,7 @@ class KoboldCPP:
                         model="deepseek-chat",
                         messages=[
                             {"role": "system",
-                             "content": deepseek_system_message,
+                             "content": deepseek_system_message},
                              {"role": "user", "content": description},
                         ],
                         stream=False
