@@ -1,8 +1,27 @@
+import concurrent
 import os
 
 import requests
 from openai import OpenAI
 from dotenv import load_dotenv
+from tqdm import tqdm
+
+
+deepseek_system_message = """
+You are a data parser that extracts keywords regarding requested competencies from job descriptions. Your job is to identify terms specifically related to Large Language Models in the text.
+
+Respond with ONLY a JSON object containing exactly this structure:
+{
+  "keywords": [
+    {"keyword": "example keyword", "LLMRelated": "yes"}
+  ]
+}
+
+IMPORTANT NOTES:
+- Translate non-English terms to English
+- If no LLM-related terms are found, return an empty array: {"keywords": []}
+
+"""
 
 class KoboldCPP:
     """ Class used to send and retrieve data from an LLM
@@ -102,29 +121,51 @@ class KoboldCPP:
         return results
 
     def deepseek_send_description(self, descriptions, timeout=5):
-        """ Method used to send gathered descriptions to the DeepSeek API.
+        """ Method used to send gathered descriptions to the DeepSeek API with parallel processing.
 
         :param descriptions: array of text job-descriptions
         :param timeout: int value representing the timeout for the request
+        :param max_workers: maximum number of worker threads (None = default based on system)
         :return: array of identified skills.
         """
         try:
             client = OpenAI(api_key=self.deepseek_api_key, base_url="https://api.deepseek.com")
-            results = []
-            for description in descriptions:
-                print("\n\nsending deepseek:" + description)
-                response = client.chat.completions.create(
-                    model="deepseek-chat",
-                    messages=[
-                        # {"role": "system", "content": "You a data parser, you will get text sen to you. Your job is to pick out keywords regarding demand for LLMs in job application and send them back as JSON lists of relevant keywords. Handle it regardless of language used, but keep keywords as english translations. Structure for the response should be: json { \"keywords\": [] }."},
-                        {"role": "system", "content": "You a data parser, you will get text sent to you. Your job is to pick out keywords regarding demand for LLMs in job application and send them back as JSON lists of relevant keywords. Handle it regardless of language used, but keep keywords as english translations. Structure for the response should be: json { \"keywords\": [{\"keyword\":\"example keyword\",\"LLMRelated\":\"yes\"}] }."},
-                        {"role": "user", "content": description},
-                    ],
-                    stream=False
-                )
-                #print(response.choices[0].message.content)
-                results.append(response.choices[0].message.content)
-            return results
+            results = [None] * len(descriptions)
+            max_workers = 10
+
+            def process_description(index, description):
+                try:
+                    response = client.chat.completions.create(
+                        model="deepseek-chat",
+                        messages=[
+                            {"role": "system",
+                             "content": deepseek_system_message,
+                             {"role": "user", "content": description},
+                        ],
+                        stream=False
+                    )
+                    return index, response.choices[0].message.content
+                except Exception as e:
+                    print(f"Error processing description {index}: {str(e)}")
+                    return index, None
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_index = {
+                    executor.submit(process_description, i, desc): i
+                    for i, desc in enumerate(descriptions)
+                }
+
+                with tqdm(total=len(descriptions), desc="Processing descriptions") as pbar:
+                    for future in concurrent.futures.as_completed(future_to_index):
+                        index, result = future.result()
+                        results[index] = result
+                        pbar.update(1)
+
+            return [r for r in results if r is not None]
+
+        except Exception as e:
+            print(f"Error in deepseek_send_description: {str(e)}")
+            return []
 
 
         except Exception as e:

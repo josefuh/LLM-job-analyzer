@@ -34,10 +34,13 @@ class Main(QMainWindow):
         self.startDate = QDateEdit(calendarPopup=True)
         self.startDate.setMinimumDate(QDate(2016, 1,1))
         self.startDate.setMaximumDate(QDate.currentDate())
+        self.startDate.setDate(QDate.currentDate().addMonths(-1))
 
         self.endDate = QDateEdit(calendarPopup=True)
         self.endDate.setMinimumDate(QDate(2016, 1, 2))
         self.endDate.setMaximumDate(QDate.currentDate())
+        self.endDate.setDate(QDate.currentDate())
+
         self.layout.addRow(self.useDate)
         self.layout.addRow("start-date:", self.startDate)
         self.layout.addRow("end-date:", self.endDate)
@@ -47,6 +50,11 @@ class Main(QMainWindow):
         self.pieBox = QCheckBox("pie")
         self.stapleBox = QCheckBox("bar")
         self.timeBox = QCheckBox("time")
+
+        self.pieBox.setChecked(True)
+        self.stapleBox.setChecked(True)
+        self.timeBox.setChecked(True)
+
         graphTypeLayout.addWidget(self.timeBox)
         graphTypeLayout.addWidget(self.stapleBox)
         graphTypeLayout.addWidget(self.pieBox)
@@ -136,12 +144,11 @@ class Main(QMainWindow):
                 print(f"Testing koboldCPP connection with URL: {url}")
                 kobold = KoboldCPP(url+"/api/v1")
                 connected = kobold.check_connection()
-                #print(f"Connected: {connected}")
-                if not connected.index(0):
+                if connected[0] is False:
                     print("Connection failed")
                     return
                 else:
-                    print("Connection successful| Version: "+connected.index(1))
+                    print("Connection successful| Version: " + str(connected[1]))
         except:
             print("Connection failed")
 
@@ -282,7 +289,7 @@ class Main(QMainWindow):
             ```
             """]
 
-            """
+
             llm_responses = []
             if self.koboldRadio.isChecked():
                 url = self.koboldURLField.text()
@@ -294,7 +301,7 @@ class Main(QMainWindow):
             if self.deepseekRadio.isChecked():
                 kobold = KoboldCPP()
                 llm_responses = kobold.deepseek_send_description(descriptions)
-            """
+
             index = "json"
 
             data = []
@@ -326,5 +333,3 @@ if __name__ == '__main__':
     window = Main()
     window.show()
     app.exec()
-
-
