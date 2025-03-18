@@ -79,6 +79,7 @@ class DataAnalysis(FigureCanvasQTAgg):
 
             dataframe = pd.DataFrame(data)
             dataframe['date'] = pd.to_datetime(dataframe['date'])
+            dataframe = dataframe.sort_values(by='date')
 
             dataframe.reset_index()
             occurrences = {}

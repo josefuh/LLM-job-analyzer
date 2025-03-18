@@ -259,37 +259,33 @@ class Main(QMainWindow):
             ```json
                 {
           "keywords": [
-            {"keyword": "development", "LLMRelated": "no"},
-            {"keyword": "problem-solving", "LLMRelated": "no"},
-            {"keyword": "frontend", "LLMRelated": "no"},
-            {"keyword": "backend", "LLMRelated": "no"},
-            {"keyword": "Javascript", "LLMRelated": "no"},
-            {"keyword": "React", "LLMRelated": "no"},
-            {"keyword": "Typescript", "LLMRelated": "yes"},
-            {"keyword": "Typescript", "LLMRelated": "yes"},
-            {"keyword": "Functional Programming", "LLMRelated": "no"},
-            {"keyword": "OOP", "LLMRelated": "no"},
-            {"keyword": "PHP", "LLMRelated": "no"},
-            {"keyword": "SQL", "LLMRelated": "yes"},
-            {"keyword": "API integrations", "LLMRelated": "no"},
-            {"keyword": "data security", "LLMRelated": "no"},
-            {"keyword": "full stack", "LLMRelated": "no"},
-            {"keyword": "MVC", "LLMRelated": "no"},
-            {"keyword": "Laravel", "LLMRelated": "no"},
-            {"keyword": "Ruby on Rails", "LLMRelated": "no"},
-            {"keyword": "Django", "LLMRelated": "no"},
-            {"keyword": "ASP.NET MVC", "LLMRelated": "no"},
-            {"keyword": "MongoDB", "LLMRelated": "no"},
-            {"keyword": "NoSQL", "LLMRelated": "no"},
-            {"keyword": "GraphQL", "LLMRelated": "no"},
-            {"keyword": "database design", "LLMRelated": "no"},
-            {"keyword": "Websockets", "LLMRelated": "no"}
+                {"keyword": "development", "LLMRelated": "no"}
               ]
             }
             ```
-            """]
+            """,
+            """
+            ```json
+            {
+                "keywords": [
+                    {"keyword": "development", "LLMRelated": "no"}
+                ]
+            }
+            ```
+            """,
+            """
+            ```json
+            {
+                "keywords": [
+                    {"keyword": "development", "LLMRelated": "no"}
+                ]
+            }
+           ```
+           """
+            ]
 
-
+            test_dates = [QDate.currentDate(), QDate.currentDate().addMonths(-12), QDate.currentDate().addMonths(14)]
+            """
             llm_responses = []
             if self.koboldRadio.isChecked():
                 url = self.koboldURLField.text()
@@ -301,7 +297,7 @@ class Main(QMainWindow):
             if self.deepseekRadio.isChecked():
                 kobold = KoboldCPP()
                 llm_responses = kobold.deepseek_send_description(descriptions)
-
+            """
             index = "json"
 
             data = []
@@ -311,7 +307,7 @@ class Main(QMainWindow):
                 llm_response = llm_response[0:llm_response.rfind("```")]
                 json_data = json.loads(llm_response)
 
-                data.append(json.dumps({"skills":json_data['keywords'], "date": dates[i]}))
+                data.append(json.dumps({"skills":json_data['keywords'], "date": test_dates[i].toString()}))
                 i +=1
 
             self.canvas.load_data(data, {"pie": self.pieBox.isChecked(),
