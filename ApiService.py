@@ -42,7 +42,7 @@ class ApiService:
 
         self.sources = {
             "https://indeed12.p.rapidapi.com/jobs/search",  # indeed
-            "https://jobsearch.api.jobtechdev.se/search?" + query + "&limit=5",  # platsbanken
+            "https://jobsearch.api.jobtechdev.se/search?" + query + "&limit=20",  # platsbanken
             #"https://jsearch.p.rapidapi.com/search"                            # jSearch
             "https://job-posting-feed-api.p.rapidapi.com/active-ats-meili"  # job posting
         }

@@ -181,10 +181,9 @@ class KoboldCPP:
       
                         - Translate non-English terms to English
                         - Format response as JSON with {"keywords": [{"keyword":..., "LLMRelated": "yes"}]}
-                        - Return empty array if nothing matches
 
                         Example output:
-                        {"keywords": [{"keyword": "transformer architectures", "LLMRelated": "yes"}, {"keyword": "PyTorch", "LLMRelated": "yes"}]}"""
+                        {"keywords": [{"keyword": "Python", "LLMRelated": "yes"}, {"keyword": "PyTorch", "LLMRelated": "yes"}]}"""
                     },
                     {
                         "role": "user",

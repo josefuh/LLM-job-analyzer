@@ -284,7 +284,7 @@ class Main(QMainWindow):
            """
             ]
 
-            test_dates = [QDate.currentDate(), QDate.currentDate().addMonths(-12), QDate.currentDate().addMonths(14)]
+            #test_dates = [QDate.currentDate(), QDate.currentDate().addMonths(-12), QDate.currentDate().addMonths(14)]
 
             llm_responses = []
             if self.koboldRadio.isChecked():
@@ -307,7 +307,7 @@ class Main(QMainWindow):
                 llm_response = llm_response[0:llm_response.rfind("```")]
                 json_data = json.loads(llm_response)
 
-                json_data['keywords'].append({"keyword": "sample", "LLMRelated": "yes"})
+                #json_data['keywords'].append({"keyword": "sample", "LLMRelated": "yes"})
                 print(json_data)
 
                 data.append(json.dumps({"skills":json_data['keywords'], "date": dates[i]}))
