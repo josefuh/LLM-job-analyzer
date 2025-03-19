@@ -131,43 +131,71 @@ class KoboldCPP:
         try:
             client = OpenAI(api_key=self.deepseek_api_key, base_url="https://api.deepseek.com")
             results = [None] * len(descriptions)
-            max_workers = 10
 
-            def process_description(index, description):
-                try:
-                    response = client.chat.completions.create(
-                        model="deepseek-chat",
-                        messages=[
-                            {"role": "system",
-                             "content": deepseek_system_message},
-                             {"role": "user", "content": description},
-                        ],
-                        stream=False
-                    )
-                    return index, response.choices[0].message.content
-                except Exception as e:
-                    print(f"Error processing description {index}: {str(e)}")
-                    return index, None
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_index = {
-                    executor.submit(process_description, i, desc): i
-                    for i, desc in enumerate(descriptions)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                future_to_idx = {
+                    executor.submit(self._process_deepseek_description,
+                                    description,
+                                    client,
+                                    idx,
+                                    len(descriptions)): idx
+                    for idx, description in enumerate(descriptions)
                 }
 
                 with tqdm(total=len(descriptions), desc="Processing descriptions") as pbar:
-                    for future in concurrent.futures.as_completed(future_to_index):
-                        index, result = future.result()
-                        results[index] = result
-                        pbar.update(1)
 
-            return [r for r in results if r is not None]
+                    for future in concurrent.futures.as_completed(future_to_idx):
+                        idx = future_to_idx[future]
+                        try:
+                            index, result = future.result()
+                            results[index] = result
+                            pbar.update(1)
+
+                        except Exception as e:
+                            print(f"DeepSeek task generated an exception: {e}")
+
+            return results
 
         except Exception as e:
             print(f"Error in deepseek_send_description: {str(e)}")
             return []
 
+    def _process_deepseek_description(self, description, client, idx, total):
+        """Process a single description through the DeepSeek API
 
+        :param description: text job-description
+        :param client: OpenAI client configured for DeepSeek
+        :param idx: current index for progress tracking
+        :param total: total number of descriptions
+        :return: tuple of (idx, DeepSeek API response)
+        """
+        try:
+            response = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": """Act as an LLM Technology Extraction Specialist. Analyze job descriptions to identify:
+                        LLM related skills
+      
+                        - Translate non-English terms to English
+                        - Format response as JSON with {"keywords": [{"keyword":..., "LLMRelated": "yes"}]}
+                        - Return empty array if nothing matches
+
+                        Example output:
+                        {"keywords": [{"keyword": "transformer architectures", "LLMRelated": "yes"}, {"keyword": "PyTorch", "LLMRelated": "yes"}]}"""
+                    },
+                    {
+                        "role": "user",
+                        "content": f"""{description}"""
+                    }
+                ],
+                stream=False,
+            )
+
+            result_content = response.choices[0].message.content
+            return idx, result_content
         except Exception as e:
-            print(f"DeepSeek API Error: {e}")
-            return None
+            print(f"DeepSeek API Error for description {idx + 1}: {e}")
+            return idx, None

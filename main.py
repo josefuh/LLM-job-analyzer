@@ -285,7 +285,7 @@ class Main(QMainWindow):
             ]
 
             test_dates = [QDate.currentDate(), QDate.currentDate().addMonths(-12), QDate.currentDate().addMonths(14)]
-            """
+
             llm_responses = []
             if self.koboldRadio.isChecked():
                 url = self.koboldURLField.text()
@@ -297,7 +297,7 @@ class Main(QMainWindow):
             if self.deepseekRadio.isChecked():
                 kobold = KoboldCPP()
                 llm_responses = kobold.deepseek_send_description(descriptions)
-            """
+
             index = "json"
 
             data = []
@@ -307,7 +307,10 @@ class Main(QMainWindow):
                 llm_response = llm_response[0:llm_response.rfind("```")]
                 json_data = json.loads(llm_response)
 
-                data.append(json.dumps({"skills":json_data['keywords'], "date": test_dates[i].toString()}))
+                json_data['keywords'].append({"keyword": "sample", "LLMRelated": "yes"})
+                print(json_data)
+
+                data.append(json.dumps({"skills":json_data['keywords'], "date": dates[i]}))
                 i +=1
 
             self.canvas.load_data(data, {"pie": self.pieBox.isChecked(),
