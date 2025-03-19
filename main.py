@@ -207,6 +207,8 @@ class Main(QMainWindow):
                     elif "hits" in data:
                         for hit in data['hits']:
                             # job posting
+                            if hit['id'] in ids:
+                                continue
                             if "description_html" in hit:
                                 description_text = hit['description_html']
                                 if description_text is not None:

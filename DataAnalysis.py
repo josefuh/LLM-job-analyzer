@@ -97,7 +97,7 @@ class DataAnalysis(FigureCanvasQTAgg):
                 plt.plot(occurrences[entry], range(occurrences[entry].__len__()), label=entry, ls=style)
             plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05),
                        fancybox=True, shadow=True, ncol=10)
-
+            plt.savefig("time.jpg")
         if self.graphtype["bar"]:
             plt.subplot(3, 1, 2)
             dataframe = pd.DataFrame(data)
@@ -120,7 +120,7 @@ class DataAnalysis(FigureCanvasQTAgg):
             #plt.bar(unique,[x for l in total_frame for x in l], width=0.3, color=colors)
             plt.bar(*zip(*d.items()), width=0.3, color=colors)
             plt.xticks(rotation=90)
-
+            plt.savefig("bar.jpg")
         if self.graphtype["pie"]:
             plt.subplot(3, 1, 3)
             temp = [len([item for item in all_skills if item not in llm_skills]), len(llm_skills)]
@@ -129,7 +129,7 @@ class DataAnalysis(FigureCanvasQTAgg):
             dataframe = np.array(temp)
             plt.pie(dataframe, labels=["non-llm skills", "llm skills"],
                     autopct=(lambda x: '{:.1f}%\n{:.0f}'.format(x, total * x / 100)))
-
+            plt.savefig("pie.jpg")
             # extra pie chart för att se alla skills
             """
             plt.subplot(3, 2, 4)
