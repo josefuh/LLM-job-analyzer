@@ -43,6 +43,16 @@ class DataAnalysis(FigureCanvasQTAgg):
         self.results = results
 
     def load_data(self, results, graphtype):
+        """ Method used to set the data to be plotted
+        in plot_data().
+
+        Parameters
+        ----------
+        :param results: [str]
+            array of data to be plotted
+        :param graphtype: dict
+            dictionary specifying what graph types to use
+        """
         self.graphtype = graphtype
         self.results = results
 
