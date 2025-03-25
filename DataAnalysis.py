@@ -35,14 +35,24 @@ class DataAnalysis(FigureCanvasQTAgg):
         if graphtype is None:
             graphtype = {""}
 
-        self.fig, (self.pie, self.bar, self.time) = plt.subplots(3, 1, sharey=False, sharex=False)
-        self.fig.tight_layout(h_pad=2.5)
+        self.fig, (self.pie, self.bar, self.time) = plt.subplots(3, 1, sharey=False, sharex=False, figsize=(8, 12))
+        self.fig.tight_layout(h_pad=15.5) # TODO: padding mellan grafer, höj om det behövs!
         super().__init__(self.fig)
 
         self.graphtype = graphtype
         self.results = results
 
     def load_data(self, results, graphtype):
+        """ Method used to set the data to be plotted
+        in plot_data().
+
+        Parameters
+        ----------
+        :param results: [str]
+            array of data to be plotted
+        :param graphtype: dict
+            dictionary specifying what graph types to use
+        """
         self.graphtype = graphtype
         self.results = results
 
@@ -95,7 +105,7 @@ class DataAnalysis(FigureCanvasQTAgg):
                     style = "solid"
 
                 plt.plot(occurrences[entry], range(occurrences[entry].__len__()), label=entry, ls=style)
-            plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05),
+            plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.25),
                        fancybox=True, shadow=True, ncol=10)
             plt.savefig("time.jpg")
         if self.graphtype["bar"]:
@@ -119,7 +129,7 @@ class DataAnalysis(FigureCanvasQTAgg):
 
             #plt.bar(unique,[x for l in total_frame for x in l], width=0.3, color=colors)
             plt.bar(*zip(*d.items()), width=0.3, color=colors)
-            plt.xticks(rotation=90)
+            plt.xticks(rotation=90, fontsize=10)
             plt.savefig("bar.jpg")
         if self.graphtype["pie"]:
             plt.subplot(3, 1, 3)

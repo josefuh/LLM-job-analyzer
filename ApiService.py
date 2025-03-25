@@ -40,18 +40,21 @@ class ApiService:
             self.end_date = urllib.parse.quote(
                 QDate().currentDate().toString(format=Qt.DateFormat.ISODateWithMs) + "T00:00:00")
 
+        limit = 20
         self.sources = {
-            "https://indeed12.p.rapidapi.com/jobs/search",  # indeed
-            "https://jobsearch.api.jobtechdev.se/search?" + query + "&limit=20",  # platsbanken
-            #"https://jsearch.p.rapidapi.com/search"                            # jSearch
-            "https://job-posting-feed-api.p.rapidapi.com/active-ats-meili"  # job posting
+            "https://indeed12.p.rapidapi.com/jobs/search",                            # indeed
+            "https://jobsearch.api.jobtechdev.se/search?" + query + "&limit="+str(limit),  # platsbanken
+            "https://historical.api.jobtechdev.se/search?q=utvecklare%20"+
+            "&request-timeout=300&limit="+str(limit)+
+            "&historical-from="+self.start_date+"&historical-to="+self.end_date,      # platsbanken historical ads
+            "https://job-posting-feed-api.p.rapidapi.com/active-ats-meili"            # job posting
         }
         api_key = os.environ.get("RAPID_API_KEY")
         self.headers = [
             {"x-rapidapi-key": api_key,
              "x-rapidapi-host": "indeed12.p.rapidapi.com"},
             {},
-            #{"x-rapidapi-key": api_key,             "x-rapidapi-host": "jsearch.p.rapidapi.com"}
+            {},
             {"x-rapidapi-key": api_key,
              "x-rapidapi-host": "job-posting-feed-api.p.rapidapi.com"}
         ]
@@ -64,7 +67,7 @@ class ApiService:
         querystring = [
             {"query": "software developer"},
             {},
-            #{"query": ("software developer "+self.location), "date_posted":"all", "fromage":14}
+            {},
             {"search": "\"software developer\"", "title_search": "false", "description_type": "html"}
         ]
         if self.location != "":
@@ -72,6 +75,6 @@ class ApiService:
             querystring[2].update({"location_filter": self.location})
 
         reqs = [grequests.get(url, headers=h, params=q) for (url, h, q) in zip(self.sources, self.headers, querystring)]
-        response = grequests.imap(reqs, size=3)
+        response = grequests.imap(reqs, size=4)
 
         return [r.content for r in response]
