@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
 import ApiService
 import DataAnalysis
 from KoboldCPPIntegration import KoboldCPP
+from TextParser import TextParser
 
 
 class Main(QMainWindow):
@@ -175,6 +176,7 @@ class Main(QMainWindow):
         responses = apiService.load()
 
         try:
+            titles = []
             descriptions = []
             dates = []
             ids = []
@@ -231,6 +233,10 @@ class Main(QMainWindow):
                                     print(data)
                             # platsbanken
                             else:
+                                title_text = hit['occupation']['label']
+                                if title_text is not None:
+                                    titles.append(title_text)
+
                                 description_text = hit['description']['text']
                                 if description_text is not None:
                                     #print(description_text)
@@ -256,38 +262,10 @@ class Main(QMainWindow):
                     pass
 
             #print(descriptions)
-           # test array
-            llm_responses = ["""
-            ```json
-                {
-          "keywords": [
-                {"keyword": "development", "LLMRelated": "no"}
-              ]
-            }
-            ```
-            """,
-            """
-            ```json
-            {
-                "keywords": [
-                    {"keyword": "development", "LLMRelated": "no"}
-                ]
-            }
-            ```
-            """,
-            """
-            ```json
-            {
-                "keywords": [
-                    {"keyword": "development", "LLMRelated": "no"}
-                ]
-            }
-           ```
-           """
-            ]
+
 
             #test_dates = [QDate.currentDate(), QDate.currentDate().addMonths(-12), QDate.currentDate().addMonths(14)]
-
+            """
             llm_responses = []
             if self.koboldRadio.isChecked():
                 url = self.koboldURLField.text()
@@ -299,11 +277,12 @@ class Main(QMainWindow):
             if self.deepseekRadio.isChecked():
                 kobold = KoboldCPP()
                 llm_responses = kobold.deepseek_send_description(descriptions)
-
+            
             index = "json"
 
             data = []
             i = 0
+            
             for llm_response in llm_responses:
                 llm_response = llm_response[llm_response.find(index) + len(index) + 1:]
                 llm_response = llm_response[0:llm_response.rfind("```")]
@@ -314,12 +293,18 @@ class Main(QMainWindow):
 
                 data.append(json.dumps({"skills":json_data['keywords'], "date": dates[i]}))
                 i +=1
+            """
+            data = []
 
-            self.canvas.load_data(data, {"pie": self.pieBox.isChecked(),
-                                             "time": self.timeBox.isChecked(),
-                                             "bar": self.stapleBox.isChecked()})
+            parser = TextParser()
+            for title, description, date in zip(titles, descriptions, dates):
+                data.append(parser.parse(title, description, date))
 
-            self.canvas.plot_data()
+            # ex. [{'PE': False, 'date': '2025-04-02T13:18:25', 'role': 'Systemutvecklare'}]
+            print(data)
+
+            # self.canvas.load_data(data, {"pie": self.pieBox.isChecked(), "time": self.timeBox.isChecked(),"bar": self.stapleBox.isChecked()})
+            # self.canvas.plot_data()
 
         except Exception as e:
             print(e)
