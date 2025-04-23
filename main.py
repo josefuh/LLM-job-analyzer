@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QHeaderView, QComboBox, QProgressBar, QFileDialog, QGridLayout, QSplitter
 )
 from matplotlib import pyplot as plt
+import copy
 
 import ApiService
 import DataAnalysis
@@ -1004,16 +1005,22 @@ class Main(QMainWindow):
                         pie_fig = plt.figure(figsize=(8, 6))
                         pie_ax = pie_fig.add_subplot(111)
 
+                        labels = ["non PE-related ads", "PE-related ads"]
+                        pie_ax.pie(self.canvas.pie_sizes, labels=labels,autopct='%1.1f%%',pctdistance=1.25, labeldistance=.6)
+
                         # Copy content from the original axis
+                        """
                         for artist in self.canvas.fig.axes[2].get_children():
+                            
                             if hasattr(artist, 'get_data'):
                                 x, y = artist.get_data()
                                 pie_ax.plot(x, y, color=artist.get_color(), linestyle=artist.get_linestyle())
 
+                        """
                         # Copy the title and labels
                         pie_ax.set_title(self.canvas.fig.axes[2].get_title())
 
-                        pie_fig.savefig(pie_path, bbox_inches='tight', dpi=300)
+                        pie_fig.savefig(pie_path, dpi=300) # bbox_inches='tight'
                         plt.close(pie_fig)
                         self.add_status(f"Saved pie chart to {pie_path}")
                     except Exception as e:
@@ -1026,16 +1033,21 @@ class Main(QMainWindow):
                         bar_fig = plt.figure(figsize=(8, 6))
                         bar_ax = bar_fig.add_subplot(111)
 
+                        bar_ax.bar(self.canvas.bar_x_value, self.canvas.bar_values[1], 0.35, label='Non-PE Related')
+                        bar_ax.bar(self.canvas.bar_x_value, self.canvas.bar_values[0], 0.35, label='PE Related')
+                        bar_ax.set_xticks(self.canvas.bar_x_value)
+                        bar_ax.set_xticklabels(self.canvas.bar_names, rotation=45, ha='right')
                         # Copy content from the original axis
+                        """
                         for artist in self.canvas.fig.axes[1].get_children():
                             if hasattr(artist, 'get_data'):
                                 x, y = artist.get_data()
                                 bar_ax.plot(x, y, color=artist.get_color(), linestyle=artist.get_linestyle())
-
+                        """
                         # Copy the title and labels
                         bar_ax.set_title(self.canvas.fig.axes[1].get_title())
 
-                        bar_fig.savefig(bar_path, bbox_inches='tight', dpi=300)
+                        bar_fig.savefig(bar_path, dpi=300) # bbox_inches='tight'
                         plt.close(bar_fig)
                         self.add_status(f"Saved bar chart to {bar_path}")
                     except Exception as e:

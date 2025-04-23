@@ -475,7 +475,7 @@ class DataAnalysis(FigureCanvasQTAgg):
 
         # Sort roles by total frequency
         sorted_roles = [role for role, _ in all_roles.most_common(10)]  # Top 10 roles
-
+        self.bar_names = sorted_roles
         # Ensure we have roles
         if not sorted_roles:
             debug_print("No sorted roles for bar chart")
@@ -488,11 +488,15 @@ class DataAnalysis(FigureCanvasQTAgg):
         pe_values = [pe_roles.get(role, 0) for role in sorted_roles]
         non_pe_values = [all_roles.get(role, 0) - pe_roles.get(role, 0) for role in sorted_roles]
 
+        self.bar_values = [pe_values, non_pe_values]
+
         # Width of bars
         width = 0.35
 
         # Create bars
         x = np.arange(len(sorted_roles))
+
+        self.bar_x_value = x
         ax.bar(x, non_pe_values, width, label='Non-PE Related', color=self.colors['non_pe'])
         ax.bar(x, pe_values, width, bottom=non_pe_values, label='PE Related', color=self.colors['pe'])
 
@@ -545,12 +549,12 @@ class DataAnalysis(FigureCanvasQTAgg):
 
         # Create basic pie chart
         labels = ['Non-PE Related', 'PE Related']
-        sizes = [non_pe_count, pe_count]
+        self.pie_sizes = [non_pe_count, pe_count]
         colors = [self.colors['non_pe'], self.colors['pe']]
 
         # Plot pie chart
         wedges, texts, autotexts = ax.pie(
-            sizes,
+            self.pie_sizes,
             labels=labels,
             colors=colors,
             autopct=lambda pct: f"{pct:.1f}%\n({int(total * pct / 100)} listings)",
