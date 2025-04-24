@@ -1005,8 +1005,16 @@ class Main(QMainWindow):
                         pie_fig = plt.figure(figsize=(8, 6))
                         pie_ax = pie_fig.add_subplot(111)
 
+                        total = self.canvas.pie_sizes[0] + self.canvas.pie_sizes[1]
                         labels = ["non PE-related ads", "PE-related ads"]
-                        pie_ax.pie(self.canvas.pie_sizes, labels=labels,autopct='%1.1f%%',pctdistance=1.25, labeldistance=.6)
+                        pie_ax.pie(self.canvas.pie_sizes, labels=labels,
+                                   autopct=lambda pct: f"{pct:.1f}%\n({int(total * pct / 100)} listings)",
+                                   pctdistance=0.5,
+                                   labeldistance=.6,
+                                   explode=[0.05] * 2,
+                                   startangle=90,
+                                   textprops={'fontsize': 12}
+                                   )
 
                         # Copy content from the original axis
                         """
@@ -1037,13 +1045,18 @@ class Main(QMainWindow):
                         bar_ax.bar(self.canvas.bar_x_value, self.canvas.bar_values[0], 0.35, label='PE Related')
                         bar_ax.set_xticks(self.canvas.bar_x_value)
                         bar_ax.set_xticklabels(self.canvas.bar_names, rotation=45, ha='right')
-                        # Copy content from the original axis
-                        """
-                        for artist in self.canvas.fig.axes[1].get_children():
-                            if hasattr(artist, 'get_data'):
-                                x, y = artist.get_data()
-                                bar_ax.plot(x, y, color=artist.get_color(), linestyle=artist.get_linestyle())
-                        """
+
+                        # Add percentage labels
+                        for i, role in enumerate(self.canvas.bar_values[1]):
+                            pe_count = self.canvas.bar_values[0][i]
+                            total = self.canvas.bar_values[1][i]
+
+                            percentage = (pe_count / total) * 100
+                            # Add a percentage label only if there are PE listings for this role
+                            if pe_count > 0:
+                                bar_ax.text(i, self.canvas.bar_values[1][i] + self.canvas.bar_values[0][i] + 0.3, f"{percentage:.1f}%",
+                                        ha='center', va='bottom', fontsize=9, color="orange")
+
                         # Copy the title and labels
                         bar_ax.set_title(self.canvas.fig.axes[1].get_title())
 
@@ -1072,6 +1085,28 @@ class Main(QMainWindow):
                         time_fig.savefig(time_path, bbox_inches='tight', dpi=300)
                         plt.close(time_fig)
                         self.add_status(f"Saved time series to {time_path}")
+
+                        # --- highlight only PE trend
+                        time_pe_path = os.path.join(directory, f"time_trends_(PE)_{timestamp}.png")
+                        # Create a new figure for just this plot
+                        time_pe_fig = plt.figure(figsize=(8, 6))
+                        time_pe_ax = time_pe_fig.add_subplot(111)
+
+                        time_pe_ax.plot(self.canvas.pe_time_data[0], self.canvas.pe_time_data[1], label="PE Related Listings", linewidth=2.5, marker='o', markersize=4, linestyle="dotted")
+
+                        window_time = min(5, len(self.canvas.pe_time_data[0]) // 2)
+                        pe_ma = self.canvas.moving_average(self.canvas.pe_time_data[1], window_time)
+                        time_pe_ax.plot(self.canvas.pe_time_data[0][window_time - 1:], pe_ma,
+                                        label="Moving average",
+                                linestyle='--', alpha=0.7, linewidth=1.5)
+
+                        # Copy the title and labels
+                        time_pe_ax.set_title("PE Related Listings")
+                        time_pe_ax.grid(True, alpha=0.3)
+                        time_pe_ax.legend(loc='upper left')
+                        time_pe_fig.savefig(time_pe_path, bbox_inches='tight', dpi=300)
+                        plt.close(time_pe_fig)
+                        self.add_status(f"Saved time(PE) series to {time_pe_path}")
                     except Exception as e:
                         self.add_status(f"Error saving time series: {str(e)}")
 
