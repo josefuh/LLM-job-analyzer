@@ -401,10 +401,11 @@ class DataAnalysis(FigureCanvasQTAgg):
         ax.plot(all_dates, non_pe_cumulative, label='Non-PE Listings',
                 color=self.colors['non_pe'], linewidth=2.5, marker='o', markersize=4)
 
+        self.pe_time_data = [all_dates, pe_cumulative]
         # Calculate moving average if we have enough data points
         if len(all_dates) > 5:
             window = min(5, len(all_dates) // 2)
-            pe_ma = self._moving_average(pe_cumulative, window)
+            pe_ma = self.moving_average(pe_cumulative, window)
             ax.plot(all_dates[window - 1:], pe_ma, color=self.colors['pe'],
                     linestyle='--', alpha=0.7, linewidth=1.5)
 
@@ -605,7 +606,7 @@ class DataAnalysis(FigureCanvasQTAgg):
                 counts[month_key] += 1
         return dict(counts)
 
-    def _moving_average(self, data, window_size):
+    def moving_average(self, data, window_size):
         """Calculate moving average for smoothing time series"""
         if len(data) < window_size:
             return data  # Not enough data for moving average
