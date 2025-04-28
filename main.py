@@ -1007,13 +1007,14 @@ class Main(QMainWindow):
 
                         total = self.canvas.pie_sizes[0] + self.canvas.pie_sizes[1]
                         labels = ["non PE-related ads", "PE-related ads"]
+
                         pie_ax.pie(self.canvas.pie_sizes, labels=labels,
                                    autopct=lambda pct: f"{pct:.1f}%\n({int(total * pct / 100)} listings)",
-                                   pctdistance=0.5,
-                                   labeldistance=.6,
+                                   #pctdistance=0.5,
+                                   #labeldistance=.6,
                                    explode=[0.05] * 2,
                                    startangle=90,
-                                   textprops={'fontsize': 12}
+                                   textprops={'fontsize': 12, 'color':'white'}
                                    )
 
                         # Copy content from the original axis
@@ -1027,7 +1028,7 @@ class Main(QMainWindow):
                         """
                         # Copy the title and labels
                         pie_ax.set_title(self.canvas.fig.axes[2].get_title())
-
+                        pie_ax.legend(loc='upper left')
                         pie_fig.savefig(pie_path, dpi=300) # bbox_inches='tight'
                         plt.close(pie_fig)
                         self.add_status(f"Saved pie chart to {pie_path}")
@@ -1059,8 +1060,8 @@ class Main(QMainWindow):
 
                         # Copy the title and labels
                         bar_ax.set_title(self.canvas.fig.axes[1].get_title())
-
-                        bar_fig.savefig(bar_path, dpi=300) # bbox_inches='tight'
+                        bar_ax.legend(loc='upper right')
+                        bar_fig.savefig(bar_path, bbox_inches='tight', dpi=300)
                         plt.close(bar_fig)
                         self.add_status(f"Saved bar chart to {bar_path}")
                     except Exception as e:
@@ -1077,11 +1078,11 @@ class Main(QMainWindow):
                         for artist in self.canvas.fig.axes[0].get_children():
                             if hasattr(artist, 'get_data'):
                                 x, y = artist.get_data()
-                                time_ax.plot(x, y, color=artist.get_color(), linestyle=artist.get_linestyle())
+                                time_ax.plot(x, y, color=artist.get_color(),label=artist.get_label(), linestyle=artist.get_linestyle())
 
                         # Copy the title and labels
                         time_ax.set_title(self.canvas.fig.axes[0].get_title())
-
+                        time_ax.legend(loc='upper left')
                         time_fig.savefig(time_path, bbox_inches='tight', dpi=300)
                         plt.close(time_fig)
                         self.add_status(f"Saved time series to {time_path}")
