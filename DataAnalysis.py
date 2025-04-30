@@ -489,8 +489,10 @@ class DataAnalysis(FigureCanvasQTAgg):
         pe_values = [pe_roles.get(role, 0) for role in sorted_roles]
         non_pe_values = [all_roles.get(role, 0) - pe_roles.get(role, 0) for role in sorted_roles]
 
-        self.bar_values = [pe_values, non_pe_values]
-
+        bar_pe_value = [pe_roles.get(role,0) for role in [role for role, _ in pe_roles.most_common(10)]]
+        self.bar_values = [pe_values, non_pe_values, bar_pe_value]
+        self.bar_pe_counter = np.arange(len(bar_pe_value))
+        self.bar_pe_names = [role for role, _ in pe_roles.most_common(10)]
         # Width of bars
         width = 0.35
 
