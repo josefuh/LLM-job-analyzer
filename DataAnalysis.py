@@ -39,7 +39,7 @@ class DataAnalysis(FigureCanvasQTAgg):
         self.axes = []
 
         for i in range(3):
-            ax = self.fig.add_subplot(3, 1, i + 1)
+            ax = self.fig.add_subplot(4, 1, i + 1)
             ax.text(0.5, 0.5, f"Graph {i + 1} will appear after analysis is run",
                     ha='center', va='center', fontsize=12)
             ax.axis('off')
@@ -227,6 +227,58 @@ class DataAnalysis(FigureCanvasQTAgg):
 
         # store for export
         self.pe_time_data = [all_dates, pe_cumulative]
+
+    def _plot_pe_time_series(self, ax):
+        # plot time trends for PE only
+        dates = self.processed_data['dates']
+        if not dates:
+            ax.text(0.5, 0.5, "No date data available", ha='center', va='center')
+            ax.axis('off')
+            return
+
+        # group dates by month
+        pe_dates = defaultdict(int)
+
+        for date in self.processed_data['pe_dates']:
+            month_key = datetime(date.year, date.month, 1)
+            pe_dates[month_key] += 1
+
+        # get sorted unique dates
+        all_dates = sorted(pe_dates.keys())
+        if not all_dates:
+            ax.text(0.5, 0.5, "No PE data available", ha='center', va='center')
+            ax.axis('off')
+            return
+
+        # prepare data for plotting
+        pe_values = [pe_dates.get(date, 0) for date in all_dates]
+        pe_cumulative = np.cumsum(pe_values)
+
+        # plot data
+        ax.plot(all_dates, pe_cumulative, label='PE Related',
+                color=self.colors['pe'], linewidth=2, marker='o', markersize=4)
+
+        # add formatting
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
+
+        # reference lines
+        key_events = [
+            (datetime(2022, 11, 30), 'ChatGPT'),
+            (datetime(2023, 3, 14), 'GPT-4')
+        ]
+
+        for date, label in key_events:
+            if min(all_dates) <= date <= max(all_dates):
+                ax.axvline(x=date, color='gray', linestyle=':', alpha=0.7)
+                ax.text(date, ax.get_ylim()[1] * 0.9, label, rotation=90, fontsize=8)
+
+        # labels
+        ax.set_xlabel('Date')
+        ax.set_ylabel('Cumulative PE Listings')
+        ax.set_title('PE Skills Demand Trend (PE Only)')
+        ax.grid(True, alpha=0.3)
 
     def _plot_bar_chart(self, ax):
         # plot role distribution

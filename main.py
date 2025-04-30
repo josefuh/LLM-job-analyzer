@@ -37,10 +37,9 @@ class FetchWorker(QThread):
 
     def run(self):
         self.update_signal.emit("Starting fetch process...")
-        all_saved_paths = []
 
         try:
-            # Initialize API service
+
             api_service = ApiService.ApiService(
                 self.location,
                 self.start_date,
@@ -49,36 +48,37 @@ class FetchWorker(QThread):
                 self.sources
             )
 
-            # Calculate batches
-            total_batches = (self.max_listings + self.batch_size - 1) // self.batch_size
+            if self.max_listings <= 20:
+                time_segments = 2
+                offset_steps = 1
+            elif self.max_listings <= 100:
+                time_segments = 3
+                offset_steps = 2
+            else:
+                time_segments = 4
+                offset_steps = 3
 
-            for batch in range(total_batches):
-                if self.isInterruptionRequested():
-                    self.update_signal.emit("Fetch canceled")
-                    break
+            self.update_signal.emit(
+                f"Fetching listings with {time_segments} time segments and {offset_steps} pagination steps...")
 
-                offset = batch * self.batch_size
-                self.update_signal.emit(f"Fetching batch {batch + 1}/{total_batches}")
+            saved_paths = api_service.load(
+                batch_offset=0,
+                time_segments=time_segments,
+                offset_steps=offset_steps,
+                max_listings=self.max_listings
+            )
 
-                saved_paths = api_service.load(batch_offset=offset)
-                self.update_signal.emit(f"Batch {batch + 1}: Got {len(saved_paths)} listings")
-                all_saved_paths.extend(saved_paths)
+            self.progress_signal.emit(len(saved_paths), self.max_listings)
 
-                # Update progress
-                self.progress_signal.emit(len(all_saved_paths), self.max_listings)
-
-                # Stop if we reached target or no more results
-                if len(all_saved_paths) >= self.max_listings:
-                    break
-                if len(saved_paths) == 0 and batch > 0:
-                    break
+            if self.isInterruptionRequested():
+                self.update_signal.emit("Fetch canceled during processing")
 
         except Exception as e:
             self.update_signal.emit(f"Error in fetch process: {str(e)}")
+            saved_paths = []
 
-        self.update_signal.emit(f"Fetch complete: {len(all_saved_paths)} listings")
-        self.finished_signal.emit(all_saved_paths)
-
+        self.update_signal.emit(f"Fetch complete: {len(saved_paths)} listings")
+        self.finished_signal.emit(saved_paths)
 
 class ListingBrowser(QWidget):
     def __init__(self, parent=None):
@@ -809,7 +809,7 @@ class Main(QMainWindow):
             graph_types = {
                 "pie": self.pieBox.isChecked(),
                 "bar": self.barBox.isChecked(),
-                "time": self.timeBox.isChecked()
+                "time": self.timeBox.isChecked(),
             }
 
             start_date = self.analysis_start_date.date().toPyDate()
@@ -864,16 +864,15 @@ class Main(QMainWindow):
                             if listing_date.date() < start_date or listing_date.date() > end_date:
                                 continue
                         except ValueError:
-                            # If we can't parse the date, include it anyway
                             pass
 
-                    # Parse with TextParser
+                    # Parse
                     parsed = self.parser.parse(title, description, date_str)
                     analysis_data.append(json.dumps(parsed))
 
                 except Exception as e:
                     error_count += 1
-                    if error_count < 5:  # Limit error messages to avoid flooding
+                    if error_count < 5:
                         self.add_status(f"Error processing listing {key}: {str(e)}")
                     elif error_count == 5:
                         self.add_status("Too many errors. Suppressing further error messages...")
@@ -926,7 +925,16 @@ class Main(QMainWindow):
                 plt.close(fig_pie)
                 self.add_status(f"Saved PE distribution chart to {pie_path}")
 
-            # PE role chart, only in export.
+            #PE time graph, only in export
+            fig_pe_time, ax_pe_time = plt.subplots(figsize=(10, 6))
+            self.canvas._plot_pe_time_series(ax_pe_time)
+            pe_time_path = os.path.join(directory, f"pe_only_time_series_{timestamp}.png")
+            fig_pe_time.tight_layout()
+            fig_pe_time.savefig(pe_time_path, dpi=300)
+            plt.close(fig_pe_time)
+            self.add_status(f"Saved PE-only time series chart to {pe_time_path}")
+
+            # PE role chart, only in export
             bar_pe_path = os.path.join(directory, f"role_distribution_PE_{timestamp}.png")
             fig, ax = plt.subplots(figsize=(8, 6))
 

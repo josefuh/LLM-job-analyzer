@@ -119,45 +119,128 @@ class ApiService:
                     if "municipality=" not in current_url:
                         self.sources[source_name]["url"] = f"{current_url}&municipality={location_encoded}"
 
-    def load(self, batch_offset=0):
-        """Fetch job listings from configured API sources"""
+    def load(self, batch_offset=0, time_segments=3, offset_steps=2, max_listings=100, limit=20):
+        """Fetch job listings with comprehensive coverage across the date range.
+
+        Args:
+            batch_offset: Starting offset for pagination
+            time_segments: Number of time segments to divide the date range into
+            offset_steps: Number of pagination steps to take within each time a segment
+            max_listings: Maximum total listings to fetch
+            limit: Maximum number of listings per page (default: 20)
+        Returns:
+            List of paths to saved listing files
+        """
+        # Initialize result tracking
+        all_paths = []
+        total_count = 0
+
+        # Calculate time periods
+        try:
+            start_date = datetime.fromisoformat(self.start_date.replace('Z', '+00:00'))
+            end_date = datetime.fromisoformat(self.end_date.replace('Z', '+00:00'))
+        except ValueError:
+            # Fallback if dates aren't in ISO format
+            start_date = datetime.combine(self.start_date_obj, datetime.min.time())
+            end_date = datetime.combine(self.end_date_obj, datetime.max.time())
+
+        # Calculate time segments
+        total_seconds = (end_date - start_date).total_seconds()
+        segment_seconds = total_seconds / time_segments
+
+        # For each time segment
+        for i in range(time_segments):
+            if total_count >= max_listings:
+                print(f"Reached limit of {max_listings} listings")
+                break
+
+            # Calculate segment boundaries
+            segment_start = start_date + timedelta(seconds=i * segment_seconds)
+            segment_end = start_date + timedelta(seconds=(i + 1) * segment_seconds)
+
+            # Ensure the last segment reaches the end date
+            if i == time_segments - 1:
+                segment_end = end_date
+
+            print(f"Fetching time segment {i + 1}/{time_segments}: {segment_start.date()} to {segment_end.date()}")
+
+            for offset_step in range(offset_steps):
+                offset = batch_offset + (offset_step * limit)
+
+                if total_count >= max_listings:
+                    break
+
+                segment_paths = self._fetch_segment(segment_start, segment_end, offset)
+
+                all_paths.extend(segment_paths)
+                total_count += len(segment_paths)
+
+                print(f"Time segment {i + 1}/{time_segments}, Offset {offset}: " +
+                      f"Got {len(segment_paths)} listings, Total: {total_count}")
+
+                if len(segment_paths) == 0:
+                    break
+
+                time.sleep(random.uniform(0.5, 1.0))  # Small delay
+
+            time.sleep(random.uniform(1.0, 2.0))  # Larger delay
+
+        self._save_listings_index()
+        return all_paths
+
+    def _fetch_segment(self, start_date, end_date, offset=0):
+        """Helper method to fetch a single time segment with a specified offset"""
+
+        start_str = start_date.strftime("%Y-%m-%dT%H:%M:%S")
+        end_str = end_date.strftime("%Y-%m-%dT%H:%M:%S")
+
         reqs = []
         source_names = []
 
-        # Prepare requests
         for source_name, config in self.sources.items():
-            url = config["url"]
 
-            if batch_offset > 0 and source_name in ["platsbanken", "platsbanken_historical"]:
-                if "offset=" in url:
-                    url = url.replace(f"offset={url.split('offset=')[1].split('&')[0]}", f"offset={batch_offset}")
-                else:
-                    url += f"&offset={batch_offset}"
+            url_parts = urllib.parse.urlparse(config["url"])
+            base_url = f"{url_parts.scheme}://{url_parts.netloc}{url_parts.path}?"
+            params = dict(urllib.parse.parse_qsl(url_parts.query))
 
-            print(f"DEBUG: Making request to {source_name} API: {url}")
+            # Update time parameters based on a source type
+            if source_name == "platsbanken":
+                params["published-after"] = start_str
+                params["published-before"] = end_str
+            elif source_name == "platsbanken_historical":
+                params["historical-from"] = start_str
+                params["historical-to"] = end_str
 
-            reqs.append(grequests.get(url, headers=config["headers"], params=config["params"]))
+            # Add offset parameter
+            params["offset"] = str(offset)
+
+            # Build new URL
+            new_url = base_url + urllib.parse.urlencode(params)
+
+            print(f"DEBUG: Making request to {source_name} API: {new_url}")
+
+            # Create request
+            reqs.append(grequests.get(new_url, headers=config["headers"], params=config["params"]))
             source_names.append(source_name)
 
+        # Execute requests
         responses = grequests.imap(reqs, size=len(reqs))
 
+        # Process responses
         saved_paths = []
         for source_name, response in zip(source_names, responses):
             if response and response.status_code == 200:
                 print(f"DEBUG: Got successful response from {source_name} API")
-                print(f"DEBUG: First 100 chars of response: {response.content[:100]}")
 
+                # Process and save listings
                 listing_paths = self._process_and_save_listings(source_name, response.content)
                 saved_paths.extend(listing_paths)
                 print(f"DEBUG: Saved {len(listing_paths)} listings from {source_name}")
-
-                time.sleep(random.uniform(0.5, 1.0))  # Small delay between requests
             else:
                 status = response.status_code if response else "No response"
                 error = response.text if response and hasattr(response, 'text') else "Unknown error"
                 print(f"DEBUG: Error response from {source_name}: Status {status}, Error: {error[:200]}")
 
-        self._save_listings_index()
         return saved_paths
 
     def _process_and_save_listings(self, source_name, response_content):
@@ -171,16 +254,19 @@ class ApiService:
             for listing in listings:
                 listing_id, listing_date, listing_body, metadata = self._extract_listing_info(source_name, listing)
 
-                # Save only if new listing
                 if listing_id and not self._is_duplicate(source_name, listing_id):
-                    date_str = listing_date.strftime("%Y%m%d") if listing_date else "unknown_date"
+
+                    if listing_date:
+                        date_str = listing_date.strftime("%Y%m%d")
+                    else:
+                        date_str = "unknown_date"
+
                     filename = f"{source_name}_{date_str}_{listing_id}.txt"
                     file_path = os.path.join(self.listings_dir, filename)
 
-                    # Write listing to the file
                     with open(file_path, 'w', encoding='utf-8') as f:
                         f.write(f"Source: {source_name}\n")
-                        f.write(f"Date: {listing_date}\n")
+                        f.write(f"Date: {listing_date if listing_date else 'Unknown'}\n")
                         f.write(f"ID: {listing_id}\n")
 
                         for key, value in metadata.items():
@@ -213,23 +299,24 @@ class ApiService:
 
                 # Parse date
                 date_str = listing.get("publication_date")
+                listing_date = None
 
                 if date_str:
                     try:
                         listing_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                    except:
-                        listing_date = datetime.now()
-                else:
-                    listing_date = datetime.now()
+                    except ValueError:
+                        print(f"Warning: Could not parse date '{date_str}' for listing {listing_id}")
 
-                # Get occupation
+                date_display = listing_date if listing_date else "Unknown publication date"
+
                 occupation = listing.get("occupation", {}).get("label", "")
 
                 # Create metadata
                 metadata = {
                     "Company": listing.get("employer", {}).get("name", "No Company"),
                     "Occupation": occupation,
-                    "Country": "Sweden"
+                    "Country": "Sweden",
+                    "Original date string": date_str or "Not provided"
                 }
 
                 # Add application details if available
