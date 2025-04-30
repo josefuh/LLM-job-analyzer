@@ -2,30 +2,30 @@ import json
 import sys
 import os
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from PyQt6.QtCore import QDate, Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QFormLayout, QLineEdit, QPushButton, QScrollArea,
-    QDateEdit, QRadioButton, QGroupBox, QVBoxLayout, QButtonGroup, QCheckBox, QMainWindow,
-    QLabel, QSpinBox, QHBoxLayout, QTextBrowser, QTabWidget, QTableWidget, QTableWidgetItem,
-    QHeaderView, QComboBox, QProgressBar, QFileDialog, QGridLayout, QSplitter
+    QDateEdit, QGroupBox, QVBoxLayout, QHBoxLayout, QTextBrowser, QTabWidget,
+    QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QProgressBar,
+    QFileDialog, QGridLayout, QCheckBox, QMainWindow, QLabel, QSpinBox,
+    QMessageBox
 )
 from matplotlib import pyplot as plt
-import copy
+import matplotlib.dates as mdates
+import re
 
 import ApiService
 import DataAnalysis
 from TextParser import TextParser
-import re
 
 
 class FetchWorker(QThread):
-    """Worker thread for fetching data to keep UI responsive"""
     update_signal = pyqtSignal(str)
-    progress_signal = pyqtSignal(int, int)  # current, total
+    progress_signal = pyqtSignal(int, int)
     finished_signal = pyqtSignal(list)
 
-    def __init__(self, location, start_date, end_date, use_date, max_listings, batch_size=20):
+    def __init__(self, location, start_date, end_date, use_date, max_listings, batch_size=20, sources=None):
         super().__init__()
         self.location = location
         self.start_date = start_date
@@ -33,117 +33,89 @@ class FetchWorker(QThread):
         self.use_date = use_date
         self.max_listings = max_listings
         self.batch_size = batch_size
+        self.sources = sources
 
     def run(self):
-        self.update_signal.emit("Starting batch fetching process...")
-
-        # Calculate number of batches needed
-        total_batches = (self.max_listings + self.batch_size - 1) // self.batch_size
+        self.update_signal.emit("Starting fetch process...")
         all_saved_paths = []
 
-        for batch in range(total_batches):
-            if self.isInterruptionRequested():
-                self.update_signal.emit("Fetch operation was canceled.")
-                break
+        try:
+            # Initialize API service
+            api_service = ApiService.ApiService(
+                self.location,
+                self.start_date,
+                self.end_date,
+                self.use_date,
+                self.sources
+            )
 
-            self.update_signal.emit(f"Processing batch {batch + 1} of {total_batches}...")
+            # Calculate batches
+            total_batches = (self.max_listings + self.batch_size - 1) // self.batch_size
 
-            try:
-                # Initialize API service for this batch
-                apiService = ApiService.ApiService(
-                    self.location,
-                    self.start_date,
-                    self.end_date,
-                    self.use_date
-                )
+            for batch in range(total_batches):
+                if self.isInterruptionRequested():
+                    self.update_signal.emit("Fetch canceled")
+                    break
 
-                # Set batch size for this request
-                current_batch_size = min(self.batch_size, self.max_listings - len(all_saved_paths))
-
-                # Update the limit in sources
-                for source in apiService.sources.values():
-                    if "url" in source and "limit=" in source["url"]:
-                        source["url"] = source["url"].replace(
-                            f"limit={source['url'].split('limit=')[1].split('&')[0]}",
-                            f"limit={current_batch_size}"
-                        )
-
-                # Update offset if applicable (for pagination)
                 offset = batch * self.batch_size
-                for source in apiService.sources.values():
-                    if "url" in source and "offset=" not in source["url"] and batch > 0:
-                        source["url"] += f"&offset={offset}"
-                    elif "url" in source and "offset=" in source["url"] and batch > 0:
-                        source["url"] = source["url"].replace(
-                            f"offset={source['url'].split('offset=')[1].split('&')[0] if '&' in source['url'].split('offset=')[1] else source['url'].split('offset=')[1]}",
-                            f"offset={offset}"
-                        )
+                self.update_signal.emit(f"Fetching batch {batch + 1}/{total_batches}")
 
-                # Fetch job listings for this batch
-                saved_paths = apiService.load(offset);
+                saved_paths = api_service.load(batch_offset=offset)
+                self.update_signal.emit(f"Batch {batch + 1}: Got {len(saved_paths)} listings")
                 all_saved_paths.extend(saved_paths)
 
                 # Update progress
                 self.progress_signal.emit(len(all_saved_paths), self.max_listings)
-                self.update_signal.emit(f"Batch {batch + 1} complete. Total listings so far: {len(all_saved_paths)}")
 
-                # Stop if we reached our target or no new listings were found
+                # Stop if we reached target or no more results
+                if len(all_saved_paths) >= self.max_listings:
+                    break
                 if len(saved_paths) == 0 and batch > 0:
-                    self.update_signal.emit("No more listings found. Stopping fetch.")
                     break
 
-            except Exception as e:
-                import traceback
-                self.update_signal.emit(f"Error in batch {batch + 1}: {str(e)}")
-                self.update_signal.emit(traceback.format_exc())
+        except Exception as e:
+            self.update_signal.emit(f"Error in fetch process: {str(e)}")
 
-        self.update_signal.emit(f"Fetch complete. Total listings retrieved: {len(all_saved_paths)}")
+        self.update_signal.emit(f"Fetch complete: {len(all_saved_paths)} listings")
         self.finished_signal.emit(all_saved_paths)
 
 
 class ListingBrowser(QWidget):
-    """Widget for browsing and filtering job listings"""
-
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.all_listings_data = []
         self.parent = parent
+        self.parser = TextParser()
+        self.api_service = None
         self.initUI()
 
     def initUI(self):
         layout = QVBoxLayout()
 
-        # Filter controls
+        # Filter options
         filter_group = QGroupBox("Filter Options")
         filter_layout = QGridLayout()
 
         # Source filter
         self.source_combo = QComboBox()
         self.source_combo.addItem("All Sources")
-        self.source_combo.addItem("Platsbanken")
-        self.source_combo.addItem("Indeed")
-        self.source_combo.addItem("Other")
         self.source_combo.currentIndexChanged.connect(self.apply_filters)
         filter_layout.addWidget(QLabel("Source:"), 0, 0)
         filter_layout.addWidget(self.source_combo, 0, 1)
 
-        # PE related filter
+        # PE filter
         self.pe_combo = QComboBox()
-        self.pe_combo.addItem("All Listings")
-        self.pe_combo.addItem("PE Related Only")
-        self.pe_combo.addItem("Non-PE Related Only")
+        self.pe_combo.addItems(["All Listings", "PE Related Only", "Non-PE Related Only"])
         self.pe_combo.currentIndexChanged.connect(self.apply_filters)
         filter_layout.addWidget(QLabel("PE Content:"), 0, 2)
         filter_layout.addWidget(self.pe_combo, 0, 3)
 
-        # Date range filter
-        self.date_from = QDateEdit()
-        self.date_from.setCalendarPopup(True)
+        # Date range
+        self.date_from = QDateEdit(calendarPopup=True)
+        self.date_to = QDateEdit(calendarPopup=True)
         self.date_from.setDate(QDate(2022, 1, 1))
-        self.date_from.dateChanged.connect(self.apply_filters)
-
-        self.date_to = QDateEdit()
-        self.date_to.setCalendarPopup(True)
         self.date_to.setDate(QDate.currentDate())
+        self.date_from.dateChanged.connect(self.apply_filters)
         self.date_to.dateChanged.connect(self.apply_filters)
 
         filter_layout.addWidget(QLabel("Date From:"), 1, 0)
@@ -151,7 +123,7 @@ class ListingBrowser(QWidget):
         filter_layout.addWidget(QLabel("Date To:"), 1, 2)
         filter_layout.addWidget(self.date_to, 1, 3)
 
-        # Search box
+        # Search
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText("Search in listings...")
         self.search_box.textChanged.connect(self.apply_filters)
@@ -184,241 +156,303 @@ class ListingBrowser(QWidget):
         self.setLayout(layout)
 
     def load_data(self, api_service):
-        """Load listing data into the browser"""
-        self.api_service = api_service
-        self.listings = api_service.get_saved_listings()
-        self.parser = TextParser()
-        self.all_listings_data = []
-
-        self.table.setSortingEnabled(False)
-        self.table.setRowCount(0)
-
-        # Process and display all listings
-        for i, (key, listing_info) in enumerate(self.listings.items()):
-            try:
-                content = self.api_service.get_listing_content(file_path=listing_info["file_path"])
-
-                # Extract data
-                lines = content.split("\n")
-                title_line = next((line for line in lines if line.startswith("Title:")), "")
-                title = title_line.replace("Title:", "").strip()
-
-                date_line = next((line for line in lines if line.startswith("Date:")), "")
-                date_str = date_line.replace("Date:", "").strip()
-
-                description_index = content.find("Description:")
-                description = content[
-                              description_index + len("Description:"):].strip() if description_index != -1 else ""
-
-                # Parse with TextParser
-                parsed = self.parser.parse(title, description, date_str)
-
-                # Store the data
-                listing_data = {
-                    "id": listing_info["id"],
-                    "date_str": date_str,
-                    "date": self.parse_date(date_str),
-                    "source": listing_info["source"],
-                    "role": parsed["role"],
-                    "pe_related": parsed["PE"],
-                    "pe_categories": parsed["pe_categories"],
-                    "content": content,
-                    "title": title,
-                    "description": description,
-                    "file_path": listing_info["file_path"]
-                }
-                self.all_listings_data.append(listing_data)
-
-                # Add to table
-                row = self.table.rowCount()
-                self.table.insertRow(row)
-                self.table.setItem(row, 0, QTableWidgetItem(listing_data["id"]))
-                self.table.setItem(row, 1, QTableWidgetItem(str(listing_data["date"])))
-                self.table.setItem(row, 2, QTableWidgetItem(listing_data["source"]))
-                self.table.setItem(row, 3, QTableWidgetItem(listing_data["role"]))
-                self.table.setItem(row, 4, QTableWidgetItem("Yes" if listing_data["pe_related"] else "No"))
-
-            except Exception as e:
-                print(f"Error loading listing {listing_info['file_path']}: {e}")
-
-        self.table.setSortingEnabled(True)
-        self.table.sortItems(1, Qt.SortOrder.DescendingOrder)  # Sort by date descending
-
-        # Update source filter with available sources
-        self.source_combo.clear()
-        self.source_combo.addItem("All Sources")
-        sources = set(item["source"] for item in self.all_listings_data)
-        for source in sorted(sources):
-            self.source_combo.addItem(source)
-
-        # Update date ranges
-        if self.all_listings_data:
-            min_date = min((item["date"] for item in self.all_listings_data if item["date"]), default=QDate(2022, 1, 1))
-            max_date = max((item["date"] for item in self.all_listings_data if item["date"]),
-                           default=QDate.currentDate())
-
-            if isinstance(min_date, datetime):
-                min_date = QDate(min_date.year, min_date.month, min_date.day)
-            if isinstance(max_date, datetime):
-                max_date = QDate(max_date.year, max_date.month, max_date.day)
-
-            self.date_from.setDate(min_date)
-            self.date_to.setDate(max_date)
-
-        self.apply_filters()
-
-    def parse_date(self, date_str):
-        """Convert date string to date object for filtering"""
-        if not date_str:
-            return None
-
         try:
-            # Try different date formats
-            for fmt in ('%Y-%m-%d', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S.%f'):
+            self.api_service = api_service
+            self.all_listings_data = []
+
+            if self.parent:
+                self.parent.add_status("Loading listings...")
+
+            # Get listings from the API service
+            listings = api_service.get_saved_listings()
+
+            if not listings:
+                if self.parent:
+                    self.parent.add_status("No listings found. Please fetch data first.")
+                return
+
+            if self.parent:
+                self.parent.add_status(f"Found {len(listings)} listings in index.")
+
+            # Process listings
+            self.table.setSortingEnabled(False)
+            self.table.setRowCount(0)
+            listing_count = 0
+            error_count = 0
+
+            for key, listing_info in listings.items():
                 try:
-                    return datetime.strptime(date_str.split('+')[0].split('Z')[0], fmt)
-                except ValueError:
-                    continue
+                    file_path = listing_info["file_path"]
+                    if not os.path.exists(file_path):
+                        if self.parent:
+                            self.parent.add_status(f"Warning: File not found: {file_path}")
+                        continue
 
-            # Try parsing datetime object directly
-            if hasattr(date_str, 'year'):
-                return date_str
+                    content = api_service.get_listing_content(file_path=file_path)
+                    if content == "Listing not found" or not content:
+                        if self.parent:
+                            self.parent.add_status(f"Warning: Empty content for {file_path}")
+                        continue
 
-            return None
-        except Exception:
-            return None
+                    # Extract data (known format from ApiService)
+                    lines = content.split("\n")
+                    title = next((line.replace("Title:", "").strip() for line in lines if line.startswith("Title:")),
+                                 "")
+                    date_str = next((line.replace("Date:", "").strip() for line in lines if line.startswith("Date:")),
+                                    "")
+
+                    # Get description (known format)
+                    desc_idx = content.find("Description:")
+                    description = content[desc_idx + len("Description:"):].strip() if desc_idx != -1 else ""
+
+                    # Parse with TextParser
+                    parsed = self.parser.parse(title, description, date_str)
+
+                    # Store data
+                    listing_data = {
+                        "id": listing_info["id"],
+                        "date_str": date_str,
+                        "date": None,  # Will be set below if parsing succeeds
+                        "source": listing_info["source"],
+                        "role": parsed["role"],
+                        "pe_related": parsed["PE"],
+                        "pe_categories": parsed["pe_categories"],
+                        "content": content,
+                        "title": title,
+                        "description": description
+                    }
+
+                    # Parse date
+                    try:
+                        if date_str:
+                            listing_data["date"] = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                        else:
+                            listing_data["date"] = datetime.now()
+                    except ValueError:
+                        listing_data["date"] = datetime.now()
+                    self.all_listings_data.append(listing_data)
+
+                    # Add to table
+                    row = self.table.rowCount()
+                    self.table.insertRow(row)
+                    self.table.setItem(row, 0, QTableWidgetItem(listing_data["id"]))
+                    self.table.setItem(row, 1, QTableWidgetItem(str(listing_data["date"])))
+                    self.table.setItem(row, 2, QTableWidgetItem(listing_data["source"]))
+                    self.table.setItem(row, 3, QTableWidgetItem(listing_data["role"]))
+                    self.table.setItem(row, 4, QTableWidgetItem("Yes" if listing_data["pe_related"] else "No"))
+
+                    listing_count += 1
+
+                except Exception as e:
+                    error_count += 1
+                    if self.parent:
+                        self.parent.add_status(f"Error processing listing {key}: {str(e)}")
+
+            if self.parent:
+                self.parent.add_status(f"Loaded {listing_count} listings. Errors: {error_count}")
+
+            # Update source filter options
+            self.source_combo.clear()
+            self.source_combo.addItem("All Sources")
+            sources = sorted(set(item["source"] for item in self.all_listings_data))
+            self.source_combo.addItems(sources)
+
+            # Update date range
+            if self.all_listings_data:
+                dates = [item["date"] for item in self.all_listings_data if item["date"]]
+                if dates:
+                    min_date = min(dates)
+                    max_date = max(dates)
+
+                    if isinstance(min_date, datetime):
+                        self.date_from.setDate(QDate(min_date.year, min_date.month, min_date.day))
+                    if isinstance(max_date, datetime):
+                        self.date_to.setDate(QDate(max_date.year, max_date.month, max_date.day))
+
+            self.table.setSortingEnabled(True)
+            self.table.sortItems(1, Qt.SortOrder.DescendingOrder)  # Sort by date
+
+            # Apply filters, but make sure we don't hide everything initially
+            self.pe_combo.setCurrentIndex(0)  # "All Listings"
+            self.apply_filters()
+
+        except Exception as e:
+            if self.parent:
+                self.parent.add_status(f"Critical error loading data: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to load listings: {str(e)}")
 
     def apply_filters(self):
-        """Apply filters to the table view"""
-        self.table.setSortingEnabled(False)
-        self.table.setRowCount(0)
+        try:
+            self.table.setSortingEnabled(False)
+            self.table.setRowCount(0)
 
-        source_filter = self.source_combo.currentText()
-        pe_filter = self.pe_combo.currentText()
-        date_from = self.date_from.date().toPyDate()
-        date_to = self.date_to.date().toPyDate()
-        search_text = self.search_box.text().lower()
+            # Get filter values
+            source_filter = self.source_combo.currentText()
+            pe_filter = self.pe_combo.currentText()
+            date_from = self.date_from.date().toPyDate()
+            date_to = self.date_to.date().toPyDate()
+            search_text = self.search_box.text().lower()
 
-        for item in self.all_listings_data:
-            # Apply source filter
-            if source_filter != "All Sources" and item["source"] != source_filter:
-                continue
-
-            # Apply PE filter
-            if pe_filter == "PE Related Only" and not item["pe_related"]:
-                continue
-            if pe_filter == "Non-PE Related Only" and item["pe_related"]:
-                continue
-
-            # Apply date filter
-            if item["date"]:
-                item_date = item["date"]
-                if isinstance(item_date, datetime):
-                    item_date = item_date.date()
-                if item_date < date_from or item_date > date_to:
+            # Apply filters
+            filtered_items = []
+            for item in self.all_listings_data:
+                # Source filter
+                if source_filter != "All Sources" and item["source"] != source_filter:
                     continue
 
-            # Apply search filter
-            if search_text and search_text not in item["content"].lower():
-                continue
+                # PE filter
+                if pe_filter == "PE Related Only" and not item["pe_related"]:
+                    continue
+                if pe_filter == "Non-PE Related Only" and item["pe_related"]:
+                    continue
 
-            # Add to table
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            self.table.setItem(row, 0, QTableWidgetItem(item["id"]))
-            self.table.setItem(row, 1, QTableWidgetItem(str(item["date"])))
-            self.table.setItem(row, 2, QTableWidgetItem(item["source"]))
-            self.table.setItem(row, 3, QTableWidgetItem(item["role"]))
-            self.table.setItem(row, 4, QTableWidgetItem("Yes" if item["pe_related"] else "No"))
+                # Date filter
+                if item["date"]:
+                    item_date = item["date"]
+                    if isinstance(item_date, datetime):
+                        item_date = item_date.date()
+                    if item_date < date_from or item_date > date_to:
+                        continue
 
-        self.table.setSortingEnabled(True)
-        self.parent.add_status(f"Displaying {self.table.rowCount()} of {len(self.all_listings_data)} listings")
+                # Search filter
+                if search_text and search_text not in item["content"].lower():
+                    continue
+
+                filtered_items.append(item)
+
+            # Update table
+            for item in filtered_items:
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                self.table.setItem(row, 0, QTableWidgetItem(item["id"]))
+                self.table.setItem(row, 1, QTableWidgetItem(str(item["date"])))
+                self.table.setItem(row, 2, QTableWidgetItem(item["source"]))
+                self.table.setItem(row, 3, QTableWidgetItem(item["role"]))
+                self.table.setItem(row, 4, QTableWidgetItem("Yes" if item["pe_related"] else "No"))
+
+            self.table.setSortingEnabled(True)
+
+            if self.parent:
+                self.parent.add_status(f"Displaying {self.table.rowCount()} of {len(self.all_listings_data)} listings")
+
+        except Exception as e:
+            if self.parent:
+                self.parent.add_status(f"Error applying filters: {str(e)}")
 
     def show_listing_detail(self, row, column):
-        """Show details of the selected listing"""
-        listing_id = self.table.item(row, 0).text()
-        source = self.table.item(row, 2).text()
+        try:
+            listing_id = self.table.item(row, 0).text()
+            source = self.table.item(row, 2).text()
 
-        # Find the listing
-        for item in self.all_listings_data:
-            if item["id"] == listing_id and item["source"] == source:
-                # Format detailed view
-                html = f"<h2>{item['title']}</h2>"
-                html += f"<p><b>Source:</b> {item['source']} | <b>Date:</b> {item['date_str']}</p>"
-                html += f"<p><b>PE Related:</b> {'Yes' if item['pe_related'] else 'No'}</p>"
+            # Find listing
+            for item in self.all_listings_data:
+                if item["id"] == listing_id and item["source"] == source:
+                    # Format details
+                    html = f"<h2>{item['title']}</h2>"
+                    html += f"<p><b>Source:</b> {item['source']} | <b>Date:</b> {item['date_str']}</p>"
+                    html += f"<p><b>PE Related:</b> {'Yes' if item['pe_related'] else 'No'}</p>"
 
-                if item['pe_related']:
-                    html += "<p><b>PE Categories:</b></p><ul>"
-                    for category, present in item['pe_categories'].items():
-                        if present:
-                            html += f"<li>{category.replace('_', ' ').title()}</li>"
-                    html += "</ul>"
+                    if item['pe_related']:
+                        html += "<p><b>PE Categories:</b></p><ul>"
+                        for category, present in item['pe_categories'].items():
+                            if present:
+                                html += f"<li>{category.replace('_', ' ').title()}</li>"
+                        html += "</ul>"
 
-                html += "<h3>Description:</h3>"
-                # Highlight PE terms in the description
-                description = item['description']
-                if item['pe_related']:
-                    # Get all PE terms
-                    all_terms = []
-                    for terms in self.parser.pe_terms.values():
-                        all_terms.extend(terms)
+                    html += "<h3>Description:</h3>"
 
-                    # Highlight each term
-                    for term in all_terms:
-                        pattern = re.compile(re.escape(term), re.IGNORECASE)
-                        description = pattern.sub(f"<span style='background-color: yellow;'>{term}</span>", description)
+                    # Highlight PE terms
+                    description = item['description']
+                    if item['pe_related']:
+                        all_terms = []
+                        for terms in self.parser.pe_terms.values():
+                            all_terms.extend(terms)
 
-                html += f"<p>{description.replace(chr(10), '<br>')}</p>"
+                        for term in all_terms:
+                            pattern = re.compile(re.escape(term), re.IGNORECASE)
+                            description = pattern.sub(f"<span style='background-color: yellow;'>{term}</span>",
+                                                      description)
 
-                self.details.setHtml(html)
-                break
+                    html += f"<p>{description.replace(chr(10), '<br>')}</p>"
+                    self.details.setHtml(html)
+                    break
+
+        except Exception as e:
+            if self.parent:
+                self.parent.add_status(f"Error showing listing details: {str(e)}")
+            self.details.setHtml(f"<p>Error displaying listing details: {str(e)}</p>")
 
     def export_results(self):
-        """Export current filtered results to CSV"""
         try:
             filename, _ = QFileDialog.getSaveFileName(self, "Save Results", "", "CSV Files (*.csv)")
-            if filename:
-                if not filename.endswith('.csv'):
-                    filename += '.csv'
+            if not filename:
+                return
 
-                # Collect data from visible rows
-                data = []
-                for row in range(self.table.rowCount()):
-                    row_data = {
-                        'ID': self.table.item(row, 0).text(),
-                        'Date': self.table.item(row, 1).text(),
-                        'Source': self.table.item(row, 2).text(),
-                        'Role': self.table.item(row, 3).text(),
-                        'PE_Related': self.table.item(row, 4).text()
-                    }
-                    data.append(row_data)
+            if not filename.endswith('.csv'):
+                filename += '.csv'
 
-                # Convert to DataFrame and save
+            # Get visible rows
+            data = []
+            for row in range(self.table.rowCount()):
+                data.append({
+                    'ID': self.table.item(row, 0).text(),
+                    'Date': self.table.item(row, 1).text(),
+                    'Source': self.table.item(row, 2).text(),
+                    'Role': self.table.item(row, 3).text(),
+                    'PE_Related': self.table.item(row, 4).text()
+                })
+
+            # Save to CSV
+            if data:
                 df = pd.DataFrame(data)
                 df.to_csv(filename, index=False)
-                self.parent.add_status(f"Exported {len(data)} records to {filename}")
+                if self.parent:
+                    self.parent.add_status(f"Exported {len(data)} records to {filename}")
+            else:
+                if self.parent:
+                    self.parent.add_status("No data to export")
+
         except Exception as e:
-            self.parent.add_status(f"Error exporting data: {str(e)}")
+            if self.parent:
+                self.parent.add_status(f"Error exporting results: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to export results: {str(e)}")
 
 
 class Main(QMainWindow):
-    """ Main class for the program, which extends the QMainWindow
-    class to create a GUI containing the form and graphs.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self):
+        super().__init__()
+        self.refresh_browser_btn = None
         self.fetch_worker = None
+        self.parser = TextParser()
         self.initUI()
+
+        # Ensure the job_listings directory exists
+        os.makedirs("job_listings", exist_ok=True)
+
+        # Initialize API service and load any existing data
+        self.api_service = ApiService.ApiService(
+            "",  # Empty location
+            QDate(2022, 1, 1),  # Default start date
+            QDate.currentDate(),  # Default end date
+            True,  # Use date
+            self.get_selected_sources()  # Default sources
+        )
+
+        # Check for existing listings
+        listings = self.api_service.get_saved_listings()
+        if listings:
+            self.add_status(f"Found {len(listings)} existing job listings in database.")
+            self.refresh_browser()
+        else:
+            self.add_status("No existing job listings found. Please fetch data.")
 
     def initUI(self):
         self.setWindowTitle("Swedish Job Market LLM Analyzer")
         self.setGeometry(100, 50, 1200, 800)
 
-        # Create main widget and layout
+        # Main widget
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
-
         main_layout = QVBoxLayout()
 
         # Create tabs
@@ -431,13 +465,9 @@ class Main(QMainWindow):
         self.tabs.addTab(self.analysis_tab, "Analysis")
         self.tabs.addTab(self.browser_tab, "Browse Listings")
 
-        # Setup fetch tab
+        # Setup tabs
         self.setup_fetch_tab()
-
-        # Setup analysis tab
         self.setup_analysis_tab()
-
-        # Setup browser tab
         self.setup_browser_tab()
 
         main_layout.addWidget(self.tabs)
@@ -451,9 +481,9 @@ class Main(QMainWindow):
         self.central_widget.setLayout(main_layout)
 
     def setup_fetch_tab(self):
-        fetch_layout = QVBoxLayout()
+        layout = QVBoxLayout()
 
-        # Form group
+        # Parameters
         form_group = QGroupBox("Data Collection Parameters")
         form_layout = QFormLayout()
 
@@ -462,140 +492,112 @@ class Main(QMainWindow):
         self.locationField.setPlaceholderText("e.g., Stockholm, Göteborg, Malmö")
         form_layout.addRow("Location:", self.locationField)
 
-        # Listings count field
+        # Listing count & batch size
         self.listingsCountField = QSpinBox()
-        self.listingsCountField.setMinimum(20)
-        self.listingsCountField.setMaximum(2000)
+        self.listingsCountField.setRange(20, 2000)
         self.listingsCountField.setValue(200)
-        self.listingsCountField.setSingleStep(20)
-        form_layout.addRow("Max listings to fetch:", self.listingsCountField)
+        form_layout.addRow("Max listings:", self.listingsCountField)
 
-        # Batch size field
         self.batchSizeField = QSpinBox()
-        self.batchSizeField.setMinimum(10)
-        self.batchSizeField.setMaximum(50)
+        self.batchSizeField.setRange(10, 50)
         self.batchSizeField.setValue(20)
-        self.batchSizeField.setSingleStep(5)
         form_layout.addRow("Batch size:", self.batchSizeField)
 
-        # Date selection
-        dateGroupBox = QGroupBox("Date Range")
-        dateLayout = QVBoxLayout()
+        # Date range
+        date_group = QGroupBox("Date Range")
+        date_layout = QVBoxLayout()
 
         self.useDate = QCheckBox("Use date range")
         self.useDate.setChecked(True)
-        self.useDate.clicked.connect(self.check_box)
 
-        dateFieldsLayout = QHBoxLayout()
+        date_fields = QHBoxLayout()
 
-        startDateLayout = QVBoxLayout()
-        startDateLayout.addWidget(QLabel("Start date:"))
         self.startDate = QDateEdit(calendarPopup=True)
-        self.startDate.setMinimumDate(QDate(2015, 1, 1))
-        self.startDate.setMaximumDate(QDate.currentDate())
-        # Default to Jan 2022 as mentioned in the requirements
         self.startDate.setDate(QDate(2022, 1, 1))
-        startDateLayout.addWidget(self.startDate)
 
-        endDateLayout = QVBoxLayout()
-        endDateLayout.addWidget(QLabel("End date:"))
         self.endDate = QDateEdit(calendarPopup=True)
-        self.endDate.setMinimumDate(QDate(2015, 1, 2))
-        self.endDate.setMaximumDate(QDate.currentDate())
-        # Set end date to current date
         self.endDate.setDate(QDate.currentDate())
-        endDateLayout.addWidget(self.endDate)
 
-        dateFieldsLayout.addLayout(startDateLayout)
-        dateFieldsLayout.addLayout(endDateLayout)
+        date_fields.addWidget(QLabel("From:"))
+        date_fields.addWidget(self.startDate)
+        date_fields.addWidget(QLabel("To:"))
+        date_fields.addWidget(self.endDate)
 
-        dateLayout.addWidget(self.useDate)
-        dateLayout.addLayout(dateFieldsLayout)
-        dateGroupBox.setLayout(dateLayout)
-        form_layout.addRow(dateGroupBox)
+        date_layout.addWidget(self.useDate)
+        date_layout.addLayout(date_fields)
+        date_group.setLayout(date_layout)
 
-        # API Source selection
-        sourceGroup = QGroupBox("Data Sources")
-        sourceLayout = QVBoxLayout()
+        form_layout.addRow(date_group)
 
-        self.platsbankenCheck = QCheckBox("Platsbanken (Swedish Public Employment Service)")
+        # Sources
+        source_group = QGroupBox("Data Sources")
+        source_layout = QVBoxLayout()
+
+        self.platsbankenCheck = QCheckBox("Platsbanken")
         self.platsbankenCheck.setChecked(True)
-        sourceLayout.addWidget(self.platsbankenCheck)
-
         self.historicalCheck = QCheckBox("Platsbanken Historical Data")
         self.historicalCheck.setChecked(True)
-        sourceLayout.addWidget(self.historicalCheck)
 
-        self.indeedCheck = QCheckBox("Indeed")
-        self.indeedCheck.setChecked(False)
-        sourceLayout.addWidget(self.indeedCheck)
+        source_layout.addWidget(self.platsbankenCheck)
+        source_layout.addWidget(self.historicalCheck)
+        source_group.setLayout(source_layout)
 
-        self.jobPostingCheck = QCheckBox("Job Posting API")
-        self.jobPostingCheck.setChecked(False)
-        sourceLayout.addWidget(self.jobPostingCheck)
-
-        sourceGroup.setLayout(sourceLayout)
-        form_layout.addRow(sourceGroup)
-
+        form_layout.addRow(source_group)
         form_group.setLayout(form_layout)
-        fetch_layout.addWidget(form_group)
+        layout.addWidget(form_group)
 
         # Progress bar
         self.progressBar = QProgressBar()
-        self.progressBar.setMinimum(0)
-        self.progressBar.setMaximum(100)
-        self.progressBar.setValue(0)
-        fetch_layout.addWidget(self.progressBar)
+        self.progressBar.setRange(0, 100)
+        layout.addWidget(self.progressBar)
 
         # Buttons
         button_layout = QHBoxLayout()
-
         self.fetchButton = QPushButton("Fetch Listings")
         self.fetchButton.clicked.connect(self.fetch_listings)
-        button_layout.addWidget(self.fetchButton)
-
         self.cancelButton = QPushButton("Cancel")
         self.cancelButton.clicked.connect(self.cancel_fetch)
         self.cancelButton.setEnabled(False)
+
+        # Clear Listings button
+        self.clearButton = QPushButton("Clear All Listings")
+        self.clearButton.clicked.connect(self.clear_listings)
+
+        button_layout.addWidget(self.fetchButton)
         button_layout.addWidget(self.cancelButton)
+        button_layout.addWidget(self.clearButton)
+        layout.addLayout(button_layout)
 
-        fetch_layout.addLayout(button_layout)
-
-        self.fetch_tab.setLayout(fetch_layout)
+        self.fetch_tab.setLayout(layout)
 
     def setup_analysis_tab(self):
-        analysis_layout = QVBoxLayout()
+        layout = QVBoxLayout()
 
-        # Graph types selection
+        # Visualization options
         graph_group = QGroupBox("Visualization Options")
         graph_layout = QVBoxLayout()
 
         self.pieBox = QCheckBox("Pie chart - PE vs Non-PE Distribution")
-        self.pieBox.setChecked(True)
-        graph_layout.addWidget(self.pieBox)
-
         self.barBox = QCheckBox("Bar chart - PE Distribution by Role")
-        self.barBox.setChecked(True)
-        graph_layout.addWidget(self.barBox)
-
         self.timeBox = QCheckBox("Time series - PE Trends Over Time")
+
+        self.pieBox.setChecked(True)
+        self.barBox.setChecked(True)
         self.timeBox.setChecked(True)
+
+        graph_layout.addWidget(self.pieBox)
+        graph_layout.addWidget(self.barBox)
         graph_layout.addWidget(self.timeBox)
 
-        # Date filter for analysis
+        # Date filter
         date_layout = QHBoxLayout()
-
         self.analysis_start_date = QDateEdit(calendarPopup=True)
-        self.analysis_start_date.setMinimumDate(QDate(2015, 1, 1))
-        self.analysis_start_date.setMaximumDate(QDate.currentDate())
-        self.analysis_start_date.setDate(QDate(2022, 1, 1))
-
         self.analysis_end_date = QDateEdit(calendarPopup=True)
-        self.analysis_end_date.setMinimumDate(QDate(2015, 1, 2))
-        self.analysis_end_date.setMaximumDate(QDate.currentDate())
+
+        self.analysis_start_date.setDate(QDate(2022, 1, 1))
         self.analysis_end_date.setDate(QDate.currentDate())
 
-        date_layout.addWidget(QLabel("Analyze From:"))
+        date_layout.addWidget(QLabel("From:"))
         date_layout.addWidget(self.analysis_start_date)
         date_layout.addWidget(QLabel("To:"))
         date_layout.addWidget(self.analysis_end_date)
@@ -605,232 +607,101 @@ class Main(QMainWindow):
         # Export options
         export_layout = QHBoxLayout()
         self.export_graphs_btn = QPushButton("Export Graphs")
-        self.export_graphs_btn.clicked.connect(self.export_graphs)
-
         self.export_data_btn = QPushButton("Export Analysis Data")
+
+        self.export_graphs_btn.clicked.connect(self.export_graphs)
         self.export_data_btn.clicked.connect(self.export_analysis_data)
 
         export_layout.addWidget(self.export_graphs_btn)
         export_layout.addWidget(self.export_data_btn)
 
         graph_layout.addLayout(export_layout)
-
         graph_group.setLayout(graph_layout)
-        analysis_layout.addWidget(graph_group)
+        layout.addWidget(graph_group)
 
-        # Analysis buttons layout
-        buttons_layout = QHBoxLayout()
-
-        # Run analysis button
+        # Analysis button
+        analyze_layout = QHBoxLayout()
         self.runAnalysisButton = QPushButton("Run Analysis")
         self.runAnalysisButton.clicked.connect(self.run_analysis)
-        buttons_layout.addWidget(self.runAnalysisButton)
+        analyze_layout.addWidget(self.runAnalysisButton)
+        layout.addLayout(analyze_layout)
 
-        # Re-parse button
-        self.reparseButton = QPushButton("Re-parse with Current TextParser")
-        self.reparseButton.setToolTip("Re-analyze existing data with the current TextParser implementation")
-        self.reparseButton.clicked.connect(self.reparse_data)
-        buttons_layout.addWidget(self.reparseButton)
-
-        analysis_layout.addLayout(buttons_layout)
-
-        # Canvas for graphs
-        self.canvas = DataAnalysis.DataAnalysis()
-        self.canvas.fig.clf()
+        # Scroll area for plots
         scroll = QScrollArea()
-        scroll.setWidget(self.canvas)
         scroll.setWidgetResizable(True)
-        analysis_layout.addWidget(scroll)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
-        self.analysis_tab.setLayout(analysis_layout)
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
 
-    def reparse_data(self):
-        """Re-parse existing job listings with the current TextParser without fetching new data"""
-        self.runAnalysisButton.setEnabled(False)
-        self.reparseButton.setEnabled(False)
-        self.statusBox.clear()
-        self.add_status("Re-parsing existing listings with current TextParser implementation...")
+        # Add canvas
+        self.canvas = DataAnalysis.DataAnalysis()
+        container_layout.addWidget(self.canvas)
 
-        try:
-            # Initialize ApiService (only used to access saved listings)
-            apiService = ApiService.ApiService(
-                self.locationField.text(),
-                self.startDate.date(),
-                self.endDate.date(),
-                self.useDate.isChecked()
-            )
+        scroll.setWidget(container)
+        layout.addWidget(scroll, 1)  # 1 = stretch factor
 
-            # Get all saved listings
-            all_listings = apiService.get_saved_listings()
-
-            if not all_listings:
-                self.add_status("No saved listings found. Please fetch listings first.")
-                self.runAnalysisButton.setEnabled(True)
-                self.reparseButton.setEnabled(True)
-                return
-
-            self.add_status(f"Found {len(all_listings)} saved listings to re-parse.")
-
-            # Create a new TextParser instance (will use the updated implementation)
-            parser = TextParser()
-            self.add_status("Created new TextParser instance with current implementation.")
-
-            # Will store the parsed results
-            parsed_data = []
-
-            # Get filter parameters
-            date_from = self.analysis_start_date.date().toPyDate()
-            date_to = self.analysis_end_date.date().toPyDate()
-
-            # Process each saved listing
-            processed_count = 0
-            for listing_key, listing_info in all_listings.items():
-                file_path = listing_info["file_path"]
-
-                # Get the content of the saved listing
-                content = apiService.get_listing_content(file_path=file_path)
-
-                # Extract title, description, and date from the content
-                try:
-                    lines = content.split("\n")
-                    title_line = next((line for line in lines if line.startswith("Title:")), "")
-                    title = title_line.replace("Title:", "").strip()
-
-                    # Get the date from metadata
-                    date_line = next((line for line in lines if line.startswith("Date:")), "")
-                    date_str = date_line.replace("Date:", "").strip()
-
-                    # Parse the date for filtering
-                    listing_date = None
-                    try:
-                        for fmt in ('%Y-%m-%d', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S.%f'):
-                            try:
-                                listing_date = datetime.strptime(date_str.split('+')[0].split('Z')[0], fmt).date()
-                                break
-                            except ValueError:
-                                continue
-                    except:
-                        # If we can't parse the date, include it anyway
-                        pass
-
-                    # Apply date filter if we have a valid date
-                    if listing_date and (listing_date < date_from or listing_date > date_to):
-                        continue
-
-                    # Get description (everything after "Description:")
-                    description_index = content.find("Description:")
-                    description = content[
-                                  description_index + len("Description:"):].strip() if description_index != -1 else ""
-
-                    # Parse the extracted information with the current TextParser
-                    parsed_result = parser.parse(title, description, date_str)
-
-                    # Add to results
-                    parsed_data.append(json.dumps(parsed_result))
-                    processed_count += 1
-
-                    # Show periodic progress updates
-                    if processed_count % 50 == 0:
-                        self.add_status(f"Re-parsed {processed_count} listings so far...")
-
-                except Exception as e:
-                    self.add_status(f"Error re-parsing listing {file_path}: {e}")
-
-            # Display analysis results
-            if parsed_data:
-                self.add_status(f"Successfully re-parsed {len(parsed_data)} job listings.")
-                self.canvas.load_data(parsed_data, {
-                    "pie": self.pieBox.isChecked(),
-                    "time": self.timeBox.isChecked(),
-                    "bar": self.barBox.isChecked()
-                })
-
-                try:
-                    self.canvas.plot_data()
-                    self.add_status("Re-parsing complete. Graphs have been updated with new results.")
-                except Exception as e:
-                    self.add_status(f"Error generating graphs: {e}")
-                    import traceback
-                    self.add_status(traceback.format_exc())
-            else:
-                self.add_status("No data could be re-parsed or all listings were filtered out.")
-
-        except Exception as e:
-            self.add_status(f"Error during re-parsing: {e}")
-            import traceback
-            self.add_status(traceback.format_exc())
-
-        self.runAnalysisButton.setEnabled(True)
-        self.reparseButton.setEnabled(True)
+        self.analysis_tab.setLayout(layout)
 
     def setup_browser_tab(self):
-        browser_layout = QVBoxLayout()
+        layout = QVBoxLayout()
 
-        # Create the browser widget
+        # Create browser widget
         self.listing_browser = ListingBrowser(self)
-        browser_layout.addWidget(self.listing_browser)
+        layout.addWidget(self.listing_browser)
 
         # Refresh button
         self.refresh_browser_btn = QPushButton("Refresh Listings")
         self.refresh_browser_btn.clicked.connect(self.refresh_browser)
-        browser_layout.addWidget(self.refresh_browser_btn)
+        layout.addWidget(self.refresh_browser_btn)
 
-        self.browser_tab.setLayout(browser_layout)
-
-    def resizeEvent(self, event):
-        """
-        Window event handler called when the window is resized.
-        Is used to resize the canvas that the graphs are printed
-        in.
-        :param event: reSizeEvent
-        """
-        if hasattr(self, 'canvas'):
-            self.canvas.resize(self.analysis_tab.size())
-        super().resizeEvent(event)
-
-    def check_box(self):
-        """ Method for enabling or disabling the
-        start and end date fields when clicking the
-        use date button.
-        """
-        if self.useDate.isChecked():
-            self.startDate.setEnabled(True)
-            self.endDate.setEnabled(True)
-        else:
-            self.startDate.setEnabled(False)
-            self.endDate.setEnabled(False)
+        self.browser_tab.setLayout(layout)
 
     def add_status(self, message):
-        """Add a message to the status box"""
-        self.statusBox.append(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
-        # Scroll to the bottom
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        self.statusBox.append(f"[{timestamp}] {message}")
+        # Scroll to bottom to ensure latest message is visible
         scrollbar = self.statusBox.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
-        # Refresh UI
-        QApplication.processEvents()
+        QApplication.processEvents()  # Force UI update
+
+    def get_selected_sources(self):
+        sources = []
+        if hasattr(self, 'platsbankenCheck') and self.platsbankenCheck.isChecked():
+            sources.append("platsbanken")
+        if hasattr(self, 'historicalCheck') and self.historicalCheck.isChecked():
+            sources.append("platsbanken_historical")
+        return sources if sources else None
 
     def fetch_listings(self):
-        """Method for fetching and saving job listings without analyzing them"""
-        self.fetchButton.setEnabled(False)
-        self.cancelButton.setEnabled(True)
-        self.progressBar.setValue(0)
-        self.statusBox.clear()
-        self.add_status("Starting to fetch job listings...")
-
         try:
+            self.fetchButton.setEnabled(False)
+            self.cancelButton.setEnabled(True)
+            self.progressBar.setValue(0)
+
             # Get parameters
             location = self.locationField.text()
             max_listings = self.listingsCountField.value()
             batch_size = self.batchSizeField.value()
+            sources = self.get_selected_sources()
 
-            # Create and start the worker thread
+            if not sources:
+                self.add_status("No data sources selected")
+                self.fetchButton.setEnabled(True)
+                self.cancelButton.setEnabled(False)
+                return
+
+            # Create a worker thread
             self.fetch_worker = FetchWorker(
                 location,
                 self.startDate.date(),
                 self.endDate.date(),
                 self.useDate.isChecked(),
                 max_listings,
-                batch_size
+                batch_size,
+                sources
             )
 
             # Connect signals
@@ -843,389 +714,329 @@ class Main(QMainWindow):
             self.fetch_worker.start()
 
         except Exception as e:
-            self.add_status(f"Error initiating fetch: {str(e)}")
-            import traceback
-            self.add_status(traceback.format_exc())
+            self.add_status(f"Error starting fetch: {str(e)}")
             self.fetchButton.setEnabled(True)
             self.cancelButton.setEnabled(False)
 
     def update_progress(self, current, total):
-        """Update progress bar"""
         percentage = min(int((current / total) * 100), 100)
         self.progressBar.setValue(percentage)
 
     def fetch_completed(self, saved_paths):
-        """Called when fetch is complete"""
-        self.add_status(f"Fetch completed. {len(saved_paths)} listings saved.")
-        self.tabs.setCurrentIndex(1)  # Switch to analysis tab
+        self.add_status(f"Fetching completed, got {len(saved_paths)} listings")
+        # Refresh the browser tab with new data
         self.refresh_browser()
+        # Switch to browser tab to show results immediately
+        self.tabs.setCurrentIndex(2)
 
     def fetch_worker_done(self):
-        """Called when worker thread is finished"""
         self.fetchButton.setEnabled(True)
         self.cancelButton.setEnabled(False)
         self.fetch_worker = None
 
     def cancel_fetch(self):
-        """Cancel the fetching process"""
         if self.fetch_worker and self.fetch_worker.isRunning():
-            self.add_status("Cancelling fetch operation...")
             self.fetch_worker.requestInterruption()
+            self.add_status("Canceling fetch operation...")
+
+    def clear_listings(self):
+        reply = QMessageBox.question(
+            self, 'Confirm Clear',
+            'Are you sure you want to delete all job listings?',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                # Initialize API service
+                api_service = ApiService.ApiService(
+                    self.locationField.text(),
+                    self.startDate.date(),
+                    self.endDate.date(),
+                    self.useDate.isChecked(),
+                    self.get_selected_sources()
+                )
+
+                # Clear all listings
+                removed = api_service.clear_listings()
+                self.add_status(f"Cleared all job listings from database")
+
+                # Refresh browser tab
+                self.refresh_browser()
+
+            except Exception as e:
+                self.add_status(f"Error clearing listings: {str(e)}")
+                QMessageBox.critical(self, "Error", f"Failed to clear listings: {str(e)}")
 
     def refresh_browser(self):
-        """Refresh the listing browser with current data"""
         try:
-            # Initialize ApiService to access saved listings
+            self.add_status("Refreshing browser view...")
+
+            # Initialize API service
             api_service = ApiService.ApiService(
                 self.locationField.text(),
                 self.startDate.date(),
                 self.endDate.date(),
-                self.useDate.isChecked()
+                self.useDate.isChecked(),
+                self.get_selected_sources()
             )
 
-            # Load data into the browser
-            self.add_status("Loading listings into browser...")
-            self.listing_browser.load_data(api_service)
-            self.add_status("Listings loaded successfully")
+            # Check if the job_listings directory exists and has files
+            if not os.path.exists("job_listings"):
+                os.makedirs("job_listings", exist_ok=True)
+                self.add_status("Created job_listings directory")
 
-            # Switch to browser tab
-            self.tabs.setCurrentIndex(2)
+            files = [f for f in os.listdir("job_listings") if f.endswith('.txt')]
+            if not files:
+                self.add_status("No job listing files found. Please fetch data first.")
+            else:
+                self.add_status(f"Found {len(files)} job listing files")
+
+            # Load data
+            self.api_service = api_service
+            self.listing_browser.load_data(api_service)
 
         except Exception as e:
-            self.add_status(f"Error loading listings: {str(e)}")
-            import traceback
-            self.add_status(traceback.format_exc())
+            self.add_status(f"Error refreshing browser: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to refresh listings: {str(e)}")
 
     def run_analysis(self):
-        """Run analysis on the job listings"""
-        self.add_status("Starting analysis...")
+        try:
+            self.add_status("Running analysis...")
 
-        # Get graph types
-        graph_types = {
-            "pie": self.pieBox.isChecked(),
-            "bar": self.barBox.isChecked(),
-            "time": self.timeBox.isChecked()
-        }
+            # Get options
+            graph_types = {
+                "pie": self.pieBox.isChecked(),
+                "bar": self.barBox.isChecked(),
+                "time": self.timeBox.isChecked()
+            }
 
-        # Get date filters
-        start_date = self.analysis_start_date.date().toPyDate()
-        end_date = self.analysis_end_date.date().toPyDate()
+            start_date = self.analysis_start_date.date().toPyDate()
+            end_date = self.analysis_end_date.date().toPyDate()
 
-        # Create a parser
-        parser = TextParser()
+            # Get API service and listings
+            api_service = ApiService.ApiService(
+                self.locationField.text(),
+                self.startDate.date(),
+                self.endDate.date(),
+                self.useDate.isChecked(),
+                self.get_selected_sources()
+            )
 
-        # Get API service to access raw data
-        api_service = ApiService.ApiService("", QDate(), QDate(), False)  # Create with default params
-        raw_listings = api_service.get_saved_listings()
+            listings = api_service.get_saved_listings()
 
-        # Process and parse all listings for analysis directly
-        analysis_data = []
+            if not listings:
+                self.add_status("No listings found")
+                return
 
-        self.add_status(f"Processing {len(raw_listings)} listings...")
+            # Process listings
+            analysis_data = []
+            error_count = 0
 
-        for key, listing_info in raw_listings.items():
-            try:
-                # Get the raw content of the listing
-                content = api_service.get_listing_content(file_path=listing_info["file_path"])
-
-                # Extract data fields from content
-                lines = content.split("\n")
-                title_line = next((line for line in lines if line.startswith("Title:")), "")
-                title = title_line.replace("Title:", "").strip()
-
-                date_line = next((line for line in lines if line.startswith("Date:")), "")
-                date_str = date_line.replace("Date:", "").strip()
-
-                # Extract description
-                description_index = content.find("Description:")
-                description = content[
-                              description_index + len("Description:"):].strip() if description_index != -1 else ""
-
-                # Parse the date
-                listing_date = None
+            for key, info in listings.items():
                 try:
-                    for fmt in ('%Y-%m-%d', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S.%f'):
-                        try:
-                            listing_date = datetime.strptime(date_str.split('+')[0].split('Z')[0], fmt)
-                            break
-                        except ValueError:
-                            continue
-                except Exception as e:
-                    self.add_status(f"Error parsing date in listing {listing_info['id']}: {e}")
-
-                # Apply date filter if date is available
-                if listing_date:
-                    listing_py_date = listing_date.date()
-                    if listing_py_date < start_date or listing_py_date > end_date:
+                    # Check if a file exists
+                    if not os.path.exists(info["file_path"]):
                         continue
 
-                # Parse the listing content to detect role and PE skills
-                parsed = parser.parse(title, description, date_str)
+                    # Get content
+                    content = api_service.get_listing_content(file_path=info["file_path"])
+                    if not content or content == "Listing not found":
+                        continue
 
-                # Add to analysis data as JSON string
-                analysis_data.append(json.dumps(parsed))
+                    # Extract data
+                    lines = content.split("\n")
+                    title = next((line.replace("Title:", "").strip() for line in lines if line.startswith("Title:")),
+                                 "")
+                    date_str = next((line.replace("Date:", "").strip() for line in lines if line.startswith("Date:")),
+                                    "")
 
-            except Exception as e:
-                self.add_status(f"Error processing listing {listing_info['file_path']}: {e}")
-                continue
+                    # Get description
+                    desc_idx = content.find("Description:")
+                    description = content[desc_idx + len("Description:"):].strip() if desc_idx != -1 else ""
 
-        # Update the data analysis with the freshly parsed data
-        self.canvas.load_data(analysis_data, graph_types)
-        self.canvas.plot_data()
+                    # Check date with consistent ISO parsing
+                    if date_str:
+                        try:
+                            listing_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                            # Convert to date for comparison with filter dates
+                            if listing_date.date() < start_date or listing_date.date() > end_date:
+                                continue
+                        except ValueError:
+                            # If we can't parse the date, include it anyway
+                            pass
 
-        self.add_status(f"Analysis complete. Successfully analyzed {len(analysis_data)} listings.")
-        
+                    # Parse with TextParser
+                    parsed = self.parser.parse(title, description, date_str)
+                    analysis_data.append(json.dumps(parsed))
+
+                except Exception as e:
+                    error_count += 1
+                    if error_count < 5:  # Limit error messages to avoid flooding
+                        self.add_status(f"Error processing listing {key}: {str(e)}")
+                    elif error_count == 5:
+                        self.add_status("Too many errors. Suppressing further error messages...")
+
+            # Load data and plot
+            if analysis_data:
+                self.canvas.load_data(analysis_data, graph_types)
+                self.canvas.plot_data()
+                self.add_status(f"Analysis complete: {len(analysis_data)} listings processed, {error_count} errors")
+            else:
+                self.add_status("No data to analyze")
+
+        except Exception as e:
+            self.add_status(f"Error running analysis: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to run analysis: {str(e)}")
+
     def export_graphs(self):
-        """Export the current graphs to image files"""
         try:
             directory = QFileDialog.getExistingDirectory(self, "Select Directory to Save Graphs")
-            if directory:
-                self.add_status("Exporting graphs...")
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            if not directory:
+                return
 
-                # Check if canvas exists and has a figure
-                if not hasattr(self, 'canvas') or not hasattr(self.canvas, 'fig'):
-                    self.add_status("No graphs available to export")
-                    return
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-                # Check if there are any axes in the figure
-                if not hasattr(self.canvas.fig, 'axes') or len(self.canvas.fig.axes) == 0:
-                    self.add_status("No graph data available to export")
-                    return
+            # Create and save individual charts
+            if self.canvas.graphtype.get("time", True):
+                fig_time, ax_time = plt.subplots(figsize=(10, 6))
+                self.canvas._plot_time_series(ax_time)
+                time_path = os.path.join(directory, f"time_series_{timestamp}.png")
+                fig_time.tight_layout()
+                fig_time.savefig(time_path, dpi=300)
+                plt.close(fig_time)
+                self.add_status(f"Saved time series chart to {time_path}")
 
-                # Get the number of axes available
-                num_axes = len(self.canvas.fig.axes)
-                self.add_status(f"Found {num_axes} graphs to export")
+            if self.canvas.graphtype.get("bar", True):
+                fig_bar, ax_bar = plt.subplots(figsize=(10, 6))
+                self.canvas._plot_bar_chart(ax_bar)
+                bar_path = os.path.join(directory, f"role_distribution_{timestamp}.png")
+                fig_bar.tight_layout()
+                fig_bar.savefig(bar_path, dpi=300)
+                plt.close(fig_bar)
+                self.add_status(f"Saved role distribution chart to {bar_path}")
 
-                # Export individual graphs if they exist
-                if self.pieBox.isChecked() and num_axes >= 3:
-                    try:
-                        pie_path = os.path.join(directory, f"pe_distribution_{timestamp}.png")
-                        # Create a new figure for just this plot
-                        pie_fig = plt.figure(figsize=(8, 6))
-                        pie_ax = pie_fig.add_subplot(111)
+            if self.canvas.graphtype.get("pie", True):
+                fig_pie, ax_pie = plt.subplots(figsize=(10, 6))
+                self.canvas._plot_pie_chart(ax_pie)
+                pie_path = os.path.join(directory, f"pe_distribution_{timestamp}.png")
+                fig_pie.tight_layout()
+                fig_pie.savefig(pie_path, dpi=300)
+                plt.close(fig_pie)
+                self.add_status(f"Saved PE distribution chart to {pie_path}")
 
-                        total = self.canvas.pie_sizes[0] + self.canvas.pie_sizes[1]
-                        labels = ["non PE-related ads", "PE-related ads"]
+            # PE role chart, only in export.
+            bar_pe_path = os.path.join(directory, f"role_distribution_PE_{timestamp}.png")
+            fig, ax = plt.subplots(figsize=(8, 6))
 
-                        pie_ax.pie(self.canvas.pie_sizes, labels=labels,
-                                   autopct=lambda pct: f"{pct:.1f}%\n({int(total * pct / 100)} listings)",
-                                   #pctdistance=0.5,
-                                   #labeldistance=.6,
-                                   explode=[0.05] * 2,
-                                   startangle=90,
-                                   textprops={'fontsize': 12, 'color':'white'}
-                                   )
+            # Sort and plot
+            data = [(count, name) for count, name in zip(self.canvas.bar_values[2], self.canvas.bar_pe_names)]
+            data.sort(reverse=True)
+            counts, names = zip(*data)
 
-                        # Copy content from the original axis
-                        """
-                        for artist in self.canvas.fig.axes[2].get_children():
-                            
-                            if hasattr(artist, 'get_data'):
-                                x, y = artist.get_data()
-                                pie_ax.plot(x, y, color=artist.get_color(), linestyle=artist.get_linestyle())
+            ax.bar(range(len(counts)), counts, color=self.canvas.colors['pe'])
+            ax.set_xticks(range(len(counts)))
+            ax.set_xticklabels(names, rotation=45, ha='right')
+            ax.set_title("SE Roles with highest PE demand")
 
-                        """
-                        # Copy the title and labels
-                        pie_ax.set_title(self.canvas.fig.axes[2].get_title())
-                        pie_ax.legend(loc='upper left')
-                        pie_fig.savefig(pie_path, dpi=300) # bbox_inches='tight'
-                        plt.close(pie_fig)
-                        self.add_status(f"Saved pie chart to {pie_path}")
-                    except Exception as e:
-                        self.add_status(f"Error saving pie chart: {str(e)}")
-
-                if self.barBox.isChecked() and num_axes >= 2:
-                    try:
-                        # Create a new figure for just this plot
-                        bar_path = os.path.join(directory, f"role_distribution_{timestamp}.png")
-                        bar_fig = plt.figure(figsize=(8, 6))
-                        bar_ax = bar_fig.add_subplot(111)
-
-                        bar_ax.bar(self.canvas.bar_x_value, self.canvas.bar_values[1], 0.35, label='Non-PE Related')
-                        bar_ax.bar(self.canvas.bar_x_value, self.canvas.bar_values[0], 0.35, label='PE Related')
-                        bar_ax.set_xticks(self.canvas.bar_x_value)
-                        bar_ax.set_xticklabels(self.canvas.bar_names, rotation=45, ha='right')
-
-                        # Add percentage labels
-                        for i, role in enumerate(self.canvas.bar_values[1]):
-                            pe_count = self.canvas.bar_values[0][i]
-                            total = self.canvas.bar_values[1][i]
-
-                            percentage = (pe_count / total) * 100
-                            # Add a percentage label only if there are PE listings for this role
-                            if pe_count > 0:
-                                bar_ax.text(i, self.canvas.bar_values[1][i] + self.canvas.bar_values[0][i] + 0.3, f"{percentage:.1f}%",
-                                        ha='center', va='bottom', fontsize=9, color="orange")
-
-                        # Copy the title and labels
-                        bar_ax.set_title(self.canvas.fig.axes[1].get_title())
-                        bar_ax.legend(loc='upper right')
-                        bar_fig.savefig(bar_path, bbox_inches='tight', dpi=300)
-                        plt.close(bar_fig)
-                        self.add_status(f"Saved bar chart to {bar_path}")
-
-                        # --- separate graph for only SE roles related to PE ---
-                        bar_pe_path = os.path.join(directory, f"role_distribution_(PE)_{timestamp}.png")
-                        bar_pe_fig = plt.figure(figsize=(8, 6))
-                        bar_pe_ax = bar_pe_fig.add_subplot(111)
-
-                        # sort pe roles
-                        pe_roles = []
-
-                        for index, role in enumerate(self.canvas.bar_values[2]):
-                            pe_roles.append( (self.canvas.bar_values[2][index], self.canvas.bar_pe_names[index]) )
-
-                        pe_roles.sort(key=lambda value: value[0], reverse=True)
-
-                        pe_count = []
-                        pe_names = []
-                        for role, name in pe_roles:
-                            pe_count.append(role)
-                            pe_names.append(name)
-
-                        bar_pe_ax.bar(self.canvas.bar_pe_counter, pe_count, 0.35, label='PE Related')
-                        bar_pe_ax.set_xticks(self.canvas.bar_pe_counter)
-                        bar_pe_ax.set_xticklabels(pe_names, rotation=45, ha='right')
-
-                        bar_pe_ax.set_title("SE Roles with highest PE demand")
-                        bar_pe_ax.legend(loc='upper right')
-                        bar_pe_fig.savefig(bar_pe_path, bbox_inches='tight', dpi=300)
-                        plt.close(bar_pe_fig)
-                        self.add_status(f"Saved bar chart to {bar_pe_path}")
-
-                    except Exception as e:
-                        self.add_status(f"Error saving bar chart: {str(e)}")
-
-                if self.timeBox.isChecked() and num_axes >= 1:
-                    try:
-                        time_path = os.path.join(directory, f"time_trends_{timestamp}.png")
-                        # Create a new figure for just this plot
-                        time_fig = plt.figure(figsize=(8, 6))
-                        time_ax = time_fig.add_subplot(111)
-
-                        # Copy content from the original axis
-                        for artist in self.canvas.fig.axes[0].get_children():
-                            if hasattr(artist, 'get_data'):
-                                x, y = artist.get_data()
-                                time_ax.plot(x, y, color=artist.get_color(),label=artist.get_label(), linestyle=artist.get_linestyle())
-
-                        # Copy the title and labels
-                        time_ax.set_title(self.canvas.fig.axes[0].get_title())
-                        time_ax.legend(loc='upper left')
-                        time_fig.savefig(time_path, bbox_inches='tight', dpi=300)
-                        plt.close(time_fig)
-                        self.add_status(f"Saved time series to {time_path}")
-
-                        # --- highlight only PE trend
-                        time_pe_path = os.path.join(directory, f"time_trends_(PE)_{timestamp}.png")
-                        # Create a new figure for just this plot
-                        time_pe_fig = plt.figure(figsize=(8, 6))
-                        time_pe_ax = time_pe_fig.add_subplot(111)
-
-                        time_pe_ax.plot(self.canvas.pe_time_data[0], self.canvas.pe_time_data[1], label="PE Related Listings", linewidth=2.5, marker='o', markersize=4, linestyle="dotted")
-
-                        window_time = min(5, len(self.canvas.pe_time_data[0]) // 2)
-                        pe_ma = self.canvas.moving_average(self.canvas.pe_time_data[1], window_time)
-                        time_pe_ax.plot(self.canvas.pe_time_data[0][window_time - 1:], pe_ma,
-                                        label="Moving average",
-                                linestyle='--', alpha=0.7, linewidth=1.5)
-
-                        # Copy the title and labels
-                        time_pe_ax.set_title("PE Related Listings")
-                        time_pe_ax.grid(True, alpha=0.3)
-                        time_pe_ax.legend(loc='upper left')
-                        time_pe_fig.savefig(time_pe_path, bbox_inches='tight', dpi=300)
-                        plt.close(time_pe_fig)
-                        self.add_status(f"Saved time(PE) series to {time_pe_path}")
-                    except Exception as e:
-                        self.add_status(f"Error saving time series: {str(e)}")
-
-                # Save combined figure
-                try:
-                    combined_path = os.path.join(directory, f"all_charts_{timestamp}.png")
-                    self.canvas.fig.savefig(combined_path, bbox_inches='tight', dpi=300)
-                    self.add_status(f"Saved combined chart to {combined_path}")
-                except Exception as e:
-                    self.add_status(f"Error saving combined chart: {str(e)}")
+            plt.tight_layout()
+            plt.savefig(bar_pe_path, dpi=300)
+            plt.close(fig)
+            self.add_status(f"Saved PE roles chart to {bar_pe_path}")
 
         except Exception as e:
             self.add_status(f"Error exporting graphs: {str(e)}")
-            import traceback
-            self.add_status(traceback.format_exc())
-
+            QMessageBox.critical(self, "Error", f"Failed to export graphs: {str(e)}")
 
     def export_analysis_data(self):
-        """Export the analyzed data to CSV"""
         try:
             filename, _ = QFileDialog.getSaveFileName(self, "Save Analysis Data", "", "CSV Files (*.csv)")
-            if filename:
-                if not filename.endswith('.csv'):
-                    filename += '.csv'
+            if not filename:
+                return
 
-                # Initialize ApiService
-                apiService = ApiService.ApiService(
-                    self.locationField.text(),
-                    self.startDate.date(),
-                    self.endDate.date(),
-                    self.useDate.isChecked()
-                )
+            if not filename.endswith('.csv'):
+                filename += '.csv'
 
-                # Get all listings
-                all_listings = apiService.get_saved_listings()
-                parser = TextParser()
+            # Get API service
+            api_service = ApiService.ApiService(
+                self.locationField.text(),
+                self.startDate.date(),
+                self.endDate.date(),
+                self.useDate.isChecked(),
+                self.get_selected_sources()
+            )
 
-                # Process each listing
-                data = []
-                for listing_key, listing_info in all_listings.items():
-                    try:
-                        # Get content
-                        content = apiService.get_listing_content(file_path=listing_info["file_path"])
+            # Get listings
+            listings = api_service.get_saved_listings()
 
-                        # Extract data
-                        lines = content.split("\n")
-                        title_line = next((line for line in lines if line.startswith("Title:")), "")
-                        title = title_line.replace("Title:", "").strip()
+            # Process listings
+            data = []
+            error_count = 0
 
-                        date_line = next((line for line in lines if line.startswith("Date:")), "")
-                        date_str = date_line.replace("Date:", "").strip()
+            for key, info in listings.items():
+                try:
+                    # Check if file exists
+                    if not os.path.exists(info["file_path"]):
+                        continue
 
-                        description_index = content.find("Description:")
-                        description = content[description_index + len(
-                            "Description:"):].strip() if description_index != -1 else ""
+                    # Get content
+                    content = api_service.get_listing_content(file_path=info["file_path"])
+                    if not content or content == "Listing not found":
+                        continue
 
-                        # Parse with TextParser
-                        parsed = parser.parse(title, description, date_str)
+                    # Extract data
+                    lines = content.split("\n")
+                    title = next((line.replace("Title:", "").strip() for line in lines if line.startswith("Title:")),
+                                 "")
+                    date_str = next((line.replace("Date:", "").strip() for line in lines if line.startswith("Date:")),
+                                    "")
 
-                        # Build row data
-                        row = {
-                            'ID': listing_info["id"],
-                            'Source': listing_info["source"],
-                            'Date': date_str,
-                            'Role': parsed["role"],
-                            'PE_Related': 'Yes' if parsed["PE"] else 'No'
-                        }
+                    # Get description
+                    desc_idx = content.find("Description:")
+                    description = content[desc_idx + len("Description:"):].strip() if desc_idx != -1 else ""
 
-                        # Add PE categories
-                        for category, present in parsed["pe_categories"].items():
-                            row[f'Category_{category}'] = 'Yes' if present else 'No'
+                    # Parse with TextParser
+                    parsed = self.parser.parse(title, description, date_str)
 
-                        data.append(row)
-                    except Exception as e:
-                        self.add_status(f"Error processing listing {listing_info['file_path']}: {e}")
+                    # Add to dataset
+                    row = {
+                        'ID': info["id"],
+                        'Source': info["source"],
+                        'Date': date_str,
+                        'Role': parsed["role"],
+                        'PE_Related': 'Yes' if parsed["PE"] else 'No'
+                    }
 
-                # Create and save dataframe
-                if data:
-                    df = pd.DataFrame(data)
-                    df.to_csv(filename, index=False)
-                    self.add_status(f"Exported {len(data)} records to {filename}")
-                else:
-                    self.add_status("No data to export")
+                    # Add categories
+                    for category, present in parsed["pe_categories"].items():
+                        row[f'Category_{category}'] = 'Yes' if present else 'No'
+
+                    data.append(row)
+
+                except Exception as e:
+                    error_count += 1
+                    if error_count < 5:  # Limit error messages
+                        self.add_status(f"Error processing listing {key}: {str(e)}")
+                    elif error_count == 5:
+                        self.add_status("Too many errors. Suppressing further error messages...")
+
+            # Save to CSV
+            if data:
+                df = pd.DataFrame(data)
+                df.to_csv(filename, index=False)
+                self.add_status(f"Exported {len(data)} records to {filename}")
+            else:
+                self.add_status("No data to export")
 
         except Exception as e:
-            self.add_status(f"Error exporting data: {str(e)}")
-            import traceback
-            self.add_status(traceback.format_exc())
+            self.add_status(f"Error exporting analysis data: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to export analysis data: {str(e)}")
+
+    def resizeEvent(self, event):
+        if hasattr(self, 'canvas'):
+            self.canvas.resize(self.analysis_tab.size())
+        super().resizeEvent(event)
 
 
 if __name__ == '__main__':
