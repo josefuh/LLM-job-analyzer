@@ -11,41 +11,28 @@ import random
 
 
 class ApiService:
-    """ Class used to get job postings from APIs and save them locally
-    with a focus on Swedish job market.
+    """ Class for fetching job postings from Swedish job market APIs """
 
-    Parameters
-    ----------
-    location: str, optional
-        specific location to get job postings from (e.g., Stockholm, Göteborg)
-    start_date: QDate
-        starting date specifying the lower bound for listings
-    end_date: QDate
-        specifying the upper bound for listings
-    use_date: bool
-        flag for whether to use the specified time frame
-    """
-
-    def __init__(self, location, start_date, end_date, use_date,
-                 sources=None, enable_international=False):
+    def __init__(self, location, start_date, end_date, use_date, sources=None):
         load_dotenv()
-
         self.location = location
         self.listings_dir = "job_listings"
         self.index_file = os.path.join(self.listings_dir, "index.json")
         self.listings_index = {}
-        self.enable_international = enable_international
 
-        # Ensure the listings directory exists
         os.makedirs(self.listings_dir, exist_ok=True)
 
-        # Load the listings index if it exists
+        # Load the existing index if available
         if os.path.exists(self.index_file):
             try:
                 with open(self.index_file, 'r', encoding='utf-8') as f:
                     self.listings_index = json.load(f)
+                # Verify index entries point to existing files
+                self.listings_index = {k: v for k, v in self.listings_index.items()
+                                       if os.path.exists(v["file_path"])}
             except Exception as e:
-                print(f"Error loading listings index: {e}")
+                print(f"Error loading index: {e}. Creating new index...")
+                self.listings_index = {}
 
         # Set up date parameters
         self._setup_date_parameters(start_date, end_date, use_date)
@@ -53,333 +40,240 @@ class ApiService:
         # Configure API sources
         self.sources = self._configure_sources(sources)
 
-        # Update location parameters if specified
+        # Add location filtering if specified
         if self.location:
             self._update_location_parameters()
 
     def _setup_date_parameters(self, start_date, end_date, use_date):
         """Set up date parameters for API queries"""
-        # Regular date parameters
         if start_date.daysTo(end_date) > 0 and use_date is True:
-            self.start_date = urllib.parse.quote(start_date.toString(format=Qt.DateFormat.ISODateWithMs) + "T00:00:00")
-            self.end_date = urllib.parse.quote(end_date.toString(format=Qt.DateFormat.ISODateWithMs) + "T00:00:00")
+            # Store dates without URL encoding
+            self.start_date = start_date.toString("yyyy-MM-dd") + "T00:00:00"
+            self.end_date = end_date.toString("yyyy-MM-dd") + "T23:59:59"
 
-            # Store Python date objects for historical queries
+            # Store Python date objects for comparison
             self.start_date_obj = start_date.toPyDate()
             self.end_date_obj = end_date.toPyDate()
         else:
-            # Default to Jan 2022 to present (based on project requirements)
+            # Default to Jan 2022 to present
             default_start = QDate(2022, 1, 1)
-            self.start_date = urllib.parse.quote(
-                default_start.toString(format=Qt.DateFormat.ISODateWithMs) + "T00:00:00")
-            self.end_date = urllib.parse.quote(
-                QDate().currentDate().toString(format=Qt.DateFormat.ISODateWithMs) + "T00:00:00")
-
-            # Store Python date objects
+            self.start_date = default_start.toString("yyyy-MM-dd") + "T00:00:00"
+            self.end_date = QDate().currentDate().toString("yyyy-MM-dd") + "T23:59:59"
             self.start_date_obj = default_start.toPyDate()
             self.end_date_obj = QDate().currentDate().toPyDate()
 
     def _configure_sources(self, sources=None):
-        """Configure the API sources with appropriate parameters"""
-        # Default limit for API queries
+        """Configure API endpoints"""
         limit = 20
 
-        # Build a more inclusive query for software engineering roles
-        # This will search for multiple common software roles instead of just "utvecklare"
-        query_terms = [
-            "utvecklare", "programmerare", "mjukvaruutvecklare", "systemutvecklare",
-            "software", "developer", "engineer", "programmer", "arkitekt", "architect"
-        ]
+        # Platsbanken (current job listings)
+        platsbanken_url = "https://jobsearch.api.jobtechdev.se/search?"
+        platsbanken_params = {
+            'occupation-field': 'apaJ_2ja_LuF',
+            'limit': limit,
+            'published-before': self.end_date,
+            'published-after': self.start_date
+        }
 
-        # Pick two random terms to create variation in results
-        import random
-        selected_terms = random.sample(query_terms, 2)
-        query_string = "%20OR%20".join(selected_terms)
+        # Historical API
+        historical_url = "https://historical.api.jobtechdev.se/search?"
+        historical_params = {
+            'occupation-field': 'apaJ_2ja_LuF',
+            'limit': limit,
+            'request-timeout': 300,
+            'historical-from': self.start_date,
+            'historical-to': self.end_date
+        }
 
-        # Add location if specified
-        location_query = f"q={query_string}{'%20' + self.location if self.location else ''}"
-
-        # Build query parameters for date range
-        date_params = f"&published-before={self.end_date}&published-after={self.start_date}"
-
-        # Dictionary of all possible sources
         all_sources = {
-            # Swedish sources (primary focus)
             "platsbanken": {
                 "enabled": True,
                 "priority": 1,
-                "url": f"https://jobsearch.api.jobtechdev.se/search?{location_query}&limit={limit}{date_params}",
+                "url": platsbanken_url + urllib.parse.urlencode(platsbanken_params),
                 "headers": {},
                 "params": {}
             },
             "platsbanken_historical": {
                 "enabled": True,
                 "priority": 2,
-                "url": f"https://historical.api.jobtechdev.se/search?q={query_string}&request-timeout=300&limit={limit}&historical-from={self.start_date}&historical-to={self.end_date}",
+                "url": historical_url + urllib.parse.urlencode(historical_params),
                 "headers": {},
                 "params": {}
             },
-
-            # International sources (optional)
-            "indeed": {
-                "enabled": self.enable_international,
-                "priority": 3,
-                "url": "https://indeed12.p.rapidapi.com/jobs/search",
-                "headers": {
-                    "x-rapidapi-key": os.environ.get("RAPID_API_KEY"),
-                    "x-rapidapi-host": "indeed12.p.rapidapi.com"
-                },
-                "params": {
-                    "query": "software engineer sweden",
-                    "language": "sv",
-                    "country": "se"
-                }
-            },
-            "job_posting_feed": {
-                "enabled": self.enable_international,
-                "priority": 4,
-                "url": "https://job-posting-feed-api.p.rapidapi.com/active-ats-meili",
-                "headers": {
-                    "x-rapidapi-key": os.environ.get("RAPID_API_KEY"),
-                    "x-rapidapi-host": "job-posting-feed-api.p.rapidapi.com"
-                },
-                "params": {
-                    "search": "\"software engineer\" sweden",
-                    "title_search": "false",
-                    "description_type": "html",
-                    "country": "sweden"
-                }
-            }
         }
 
-        # Override default sources if specified
-        if sources is not None:
-            for source_name, enabled in sources.items():
-                if source_name in all_sources:
-                    all_sources[source_name]["enabled"] = enabled
-
-        # Filter to only enabled sources
-        enabled_sources = {k: v for k, v in all_sources.items() if v["enabled"]}
-
-        # Sort by priority
-        return dict(sorted(enabled_sources.items(), key=lambda x: x[1]["priority"]))
+        if isinstance(sources, list):
+            return {k: v for k, v in all_sources.items() if k in sources}
+        else:
+            return all_sources
 
     def _update_location_parameters(self):
-        """Update location parameters in API sources"""
-        if "indeed" in self.sources:
-            self.sources["indeed"]["params"].update({
-                "location": self.location,
-                "query": f"software engineer {self.location} sweden"
-            })
+        """Add location filtering to API endpoints"""
+        if self.location:
+            location_encoded = urllib.parse.quote(self.location)
 
-        if "job_posting_feed" in self.sources:
-            self.sources["job_posting_feed"]["params"].update({
-                "location_filter": f"{self.location}, sweden",
-                "search": f"\"software engineer\" {self.location} sweden"
-            })
+            # Update platsbanken sources with municipality parameter
+            for source_name in ["platsbanken", "platsbanken_historical"]:
+                if source_name in self.sources:
+                    current_url = self.sources[source_name]["url"]
+                    if "municipality=" not in current_url:
+                        self.sources[source_name]["url"] = f"{current_url}&municipality={location_encoded}"
 
-        if "platsbanken" in self.sources:
-            # Extract the base query from existing URL
-            current_url = self.sources["platsbanken"]["url"]
-            start_q = current_url.find("q=") + 2
-            end_q = current_url.find("&", start_q) if "&" in current_url[start_q:] else len(current_url)
-            base_query = current_url[start_q:end_q]
-
-            # Add location to the query if specified
-            if self.location:
-                new_query = f"{base_query}%20{urllib.parse.quote(self.location)}"
-                self.sources["platsbanken"]["url"] = current_url.replace(
-                    f"q={base_query}", f"q={new_query}")
-
-        if "platsbanken_historical" in self.sources:
-            # Extract the base query from existing URL
-            current_url = self.sources["platsbanken_historical"]["url"]
-            start_q = current_url.find("q=") + 2
-            end_q = current_url.find("&", start_q) if "&" in current_url[start_q:] else len(current_url)
-            base_query = current_url[start_q:end_q]
-
-            # Add location to the query if specified
-            if self.location:
-                new_query = f"{base_query}%20{urllib.parse.quote(self.location)}"
-                self.sources["platsbanken_historical"]["url"] = current_url.replace(
-                    f"q={base_query}", f"q={new_query}")
-
-    def load(self, batch_offset=0):
-        """Method for making HTTP requests to each API and save listings
+    def load(self, batch_offset=0, time_segments=3, offset_steps=2, max_listings=100, limit=20):
+        """Fetch job listings with comprehensive coverage across the date range.
 
         Args:
-            batch_offset (int): Offset for pagination in batch fetching
-
+            batch_offset: Starting offset for pagination
+            time_segments: Number of time segments to divide the date range into
+            offset_steps: Number of pagination steps to take within each time a segment
+            max_listings: Maximum total listings to fetch
+            limit: Maximum number of listings per page (default: 20)
         Returns:
-            list: Saved job listings file paths
+            List of paths to saved listing files
         """
-        # Prepare requests
+        # Initialize result tracking
+        all_paths = []
+        total_count = 0
+
+        # Calculate time periods
+        try:
+            start_date = datetime.fromisoformat(self.start_date.replace('Z', '+00:00'))
+            end_date = datetime.fromisoformat(self.end_date.replace('Z', '+00:00'))
+        except ValueError:
+            # Fallback if dates aren't in ISO format
+            start_date = datetime.combine(self.start_date_obj, datetime.min.time())
+            end_date = datetime.combine(self.end_date_obj, datetime.max.time())
+
+        # Calculate time segments
+        total_seconds = (end_date - start_date).total_seconds()
+        segment_seconds = total_seconds / time_segments
+
+        # For each time segment
+        for i in range(time_segments):
+            if total_count >= max_listings:
+                print(f"Reached limit of {max_listings} listings")
+                break
+
+            # Calculate segment boundaries
+            segment_start = start_date + timedelta(seconds=i * segment_seconds)
+            segment_end = start_date + timedelta(seconds=(i + 1) * segment_seconds)
+
+            # Ensure the last segment reaches the end date
+            if i == time_segments - 1:
+                segment_end = end_date
+
+            print(f"Fetching time segment {i + 1}/{time_segments}: {segment_start.date()} to {segment_end.date()}")
+
+            for offset_step in range(offset_steps):
+                offset = batch_offset + (offset_step * limit)
+
+                if total_count >= max_listings:
+                    break
+
+                segment_paths = self._fetch_segment(segment_start, segment_end, offset)
+
+                all_paths.extend(segment_paths)
+                total_count += len(segment_paths)
+
+                print(f"Time segment {i + 1}/{time_segments}, Offset {offset}: " +
+                      f"Got {len(segment_paths)} listings, Total: {total_count}")
+
+                if len(segment_paths) == 0:
+                    break
+
+                time.sleep(random.uniform(0.5, 1.0))  # Small delay
+
+            time.sleep(random.uniform(1.0, 2.0))  # Larger delay
+
+        self._save_listings_index()
+        return all_paths
+
+    def _fetch_segment(self, start_date, end_date, offset=0):
+        """Helper method to fetch a single time segment with a specified offset"""
+
+        start_str = start_date.strftime("%Y-%m-%dT%H:%M:%S")
+        end_str = end_date.strftime("%Y-%m-%dT%H:%M:%S")
+
         reqs = []
         source_names = []
 
-        # Add offset to URLs if applicable
         for source_name, config in self.sources.items():
-            url = config["url"]
 
-            # Add offset for pagination if supported
-            if batch_offset > 0:
-                if source_name in ["platsbanken", "platsbanken_historical"]:
-                    if "offset=" in url:
-                        url = url.replace(f"offset={url.split('offset=')[1].split('&')[0]}", f"offset={batch_offset}")
-                    else:
-                        url += f"&offset={batch_offset}"
+            url_parts = urllib.parse.urlparse(config["url"])
+            base_url = f"{url_parts.scheme}://{url_parts.netloc}{url_parts.path}?"
+            params = dict(urllib.parse.parse_qsl(url_parts.query))
 
-            # Create the request
-            reqs.append(grequests.get(
-                url,
-                headers=config["headers"],
-                params=config["params"]
-            ))
+            # Update time parameters based on a source type
+            if source_name == "platsbanken":
+                params["published-after"] = start_str
+                params["published-before"] = end_str
+            elif source_name == "platsbanken_historical":
+                params["historical-from"] = start_str
+                params["historical-to"] = end_str
+
+            # Add offset parameter
+            params["offset"] = str(offset)
+
+            # Build new URL
+            new_url = base_url + urllib.parse.urlencode(params)
+
+            print(f"DEBUG: Making request to {source_name} API: {new_url}")
+
+            # Create request
+            reqs.append(grequests.get(new_url, headers=config["headers"], params=config["params"]))
             source_names.append(source_name)
 
-        # Execute requests concurrently
+        # Execute requests
         responses = grequests.imap(reqs, size=len(reqs))
 
-        # Process responses and save listings
+        # Process responses
         saved_paths = []
         for source_name, response in zip(source_names, responses):
             if response and response.status_code == 200:
-                # Process and save listings from this response
+                print(f"DEBUG: Got successful response from {source_name} API")
+
+                # Process and save listings
                 listing_paths = self._process_and_save_listings(source_name, response.content)
                 saved_paths.extend(listing_paths)
-
-                # Add a small delay to avoid overloading APIs
-                time.sleep(random.uniform(0.5, 1.0))
-
-        # Save the updated listings index
-        self._save_listings_index()
-
-        return saved_paths
-
-    def load_historical_range(self, max_listings=500):
-        """Load historical data in smaller segments to avoid timeout issues
-
-        Args:
-            max_listings (int): Maximum number of listings to fetch
-
-        Returns:
-            list: Saved job listings file paths
-        """
-        if "platsbanken_historical" not in self.sources:
-            return []
-
-        saved_paths = []
-
-        # Calculate number of months between start and end date
-        start_date = self.start_date_obj
-        end_date = self.end_date_obj
-
-        # Break into 3-month segments
-        current_start = start_date
-        segment_count = 0
-
-        while current_start < end_date and len(saved_paths) < max_listings:
-            # Calculate the end of this segment (3 months or end_date, whichever is sooner)
-            segment_end = min(
-                end_date,
-                datetime(
-                    current_start.year + ((current_start.month + 2) // 12),
-                    ((current_start.month + 2) % 12) + 1,
-                    1
-                ).date() - timedelta(days=1)
-            )
-
-            # Format dates for API
-            from_date = urllib.parse.quote(current_start.strftime("%Y-%m-%d") + "T00:00:00")
-            to_date = urllib.parse.quote(segment_end.strftime("%Y-%m-%d") + "T23:59:59")
-
-            # Update the URL with the segment dates
-            original_url = self.sources["platsbanken_historical"]["url"]
-            segment_url = original_url.replace(
-                f"historical-from={self.start_date}&historical-to={self.end_date}",
-                f"historical-from={from_date}&historical-to={to_date}"
-            )
-
-            # Save the original URL
-            orig_url = self.sources["platsbanken_historical"]["url"]
-            self.sources["platsbanken_historical"]["url"] = segment_url
-
-            try:
-                # Fetch this segment
-                print(f"Fetching historical segment {segment_count + 1}: {current_start} to {segment_end}")
-                segment_paths = self.load()
-                saved_paths.extend(segment_paths)
-
-                # Stop if we reached the limit
-                if len(saved_paths) >= max_listings:
-                    break
-
-            except Exception as e:
-                print(f"Error fetching segment {segment_count + 1}: {e}")
-
-            finally:
-                # Restore the original URL
-                self.sources["platsbanken_historical"]["url"] = orig_url
-
-            # Move to next segment
-            current_start = segment_end + timedelta(days=1)
-            segment_count += 1
-
-            # Small delay between segments
-            time.sleep(random.uniform(1.0, 2.0))
+                print(f"DEBUG: Saved {len(listing_paths)} listings from {source_name}")
+            else:
+                status = response.status_code if response else "No response"
+                error = response.text if response and hasattr(response, 'text') else "Unknown error"
+                print(f"DEBUG: Error response from {source_name}: Status {status}, Error: {error[:200]}")
 
         return saved_paths
 
     def _process_and_save_listings(self, source_name, response_content):
-        """Process the API response and save unique listings to files
-
-        Args:
-            source_name (str): Name of the source API
-            response_content (bytes): API response content
-
-        Returns:
-            list: Paths to the saved listing files
-        """
+        """Process API response and save listings"""
         saved_paths = []
 
         try:
-            # Parse the response content
             data = json.loads(response_content)
+            listings = data.get("hits", [])
 
-            # Extract listings based on the source format
-            listings = []
-            if source_name == "indeed":
-                listings = data.get("hits", [])
-            elif source_name == "platsbanken" or source_name == "platsbanken_historical":
-                listings = data.get("hits", [])
-            elif source_name == "job_posting_feed":
-                listings = data.get("jobs", [])
-
-            # Save each listing to a file if it's not a duplicate
             for listing in listings:
                 listing_id, listing_date, listing_body, metadata = self._extract_listing_info(source_name, listing)
 
-                if listing_id and not self._is_duplicate(source_name, listing_id):
-                    # Create a unique filename
-                    date_str = listing_date.strftime("%Y%m%d") if listing_date else "unknown_date"
+                #only save articles with identified date.
+                if listing_date and listing_id and not self._is_duplicate(source_name, listing_id):
+
+                    date_str = listing_date.strftime("%Y%m%d")
+
                     filename = f"{source_name}_{date_str}_{listing_id}.txt"
                     file_path = os.path.join(self.listings_dir, filename)
 
-                    # Save the listing
                     with open(file_path, 'w', encoding='utf-8') as f:
-                        # Add metadata at the top
                         f.write(f"Source: {source_name}\n")
-                        f.write(f"Date: {listing_date}\n")
+                        f.write(f"Date: {listing_date if listing_date else 'Unknown'}\n")
                         f.write(f"ID: {listing_id}\n")
 
-                        # Add additional metadata
                         for key, value in metadata.items():
                             f.write(f"{key}: {value}\n")
 
                         f.write("-" * 50 + "\n\n")
                         f.write(listing_body)
 
-                    # Add to the index
+                    # Update index
                     self.listings_index[f"{source_name}_{listing_id}"] = {
                         "file_path": file_path,
                         "date": date_str,
@@ -395,126 +289,63 @@ class ApiService:
         return saved_paths
 
     def _extract_listing_info(self, source_name, listing):
-        """Extract ID, date, body, and metadata from a listing based on its source
-
-        Args:
-            source_name (str): Name of the source API
-            listing (dict): The listing data
-
-        Returns:
-            tuple: (listing_id, listing_date, listing_body, metadata)
-        """
-        listing_id = None
-        listing_date = None
-        listing_body = ""
-        metadata = {}
-
+        """Extract key information from a job listing"""
         try:
-            if source_name == "indeed":
-                listing_id = listing.get("jobkey")
-                date_str = listing.get("formattedRelativeTime", "")
-
-                # Try to parse the date or use current date
-                listing_date = datetime.now()  # Fallback to current date
-
-                # Extract metadata
-                metadata = {
-                    "Company": listing.get("company", "No Company"),
-                    "Location": listing.get("formattedLocation", "No Location"),
-                    "Country": "Sweden" if "sweden" in str(listing.get("formattedLocation", "")).lower() else "Unknown"
-                }
-
-                listing_body = (
-                    f"Title: {listing.get('title', 'No Title')}\n"
-                    f"Company: {metadata['Company']}\n"
-                    f"Location: {metadata['Location']}\n\n"
-                    f"Description:\n{listing.get('snippet', 'No Description')}"
-                )
-
-            elif source_name == "platsbanken" or source_name == "platsbanken_historical":
+            if source_name in ["platsbanken", "platsbanken_historical"]:
+                # Get basic info
                 listing_id = listing.get("id")
 
-                # Parse date from the published timestamp
+                # Parse date
                 date_str = listing.get("publication_date")
+                listing_date = None
+
                 if date_str:
                     try:
                         listing_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                    except:
-                        listing_date = datetime.now()
+                    except ValueError:
+                        print(f"Warning: Could not parse date '{date_str}' for listing {listing_id}")
 
-                # Extract workplace locations
-                workplace_addresses = listing.get("workplace_addresses", [])
-                locations = ', '.join(
-                    [loc.get("municipality", "") for loc in workplace_addresses if loc.get("municipality")])
+                date_display = listing_date if listing_date else "Unknown publication date"
 
-                # Extract occupation
                 occupation = listing.get("occupation", {}).get("label", "")
 
-                # Extract metadata
+                # Create metadata
                 metadata = {
                     "Company": listing.get("employer", {}).get("name", "No Company"),
-                    "Location": locations,
                     "Occupation": occupation,
-                    "Country": "Sweden"
+                    "Country": "Sweden",
+                    "Original date string": date_str or "Not provided"
                 }
 
-                # Extract application details
+                # Add application details if available
                 application_details = listing.get("application_details", {})
                 if application_details:
                     metadata["Email"] = application_details.get("email", "")
                     metadata["URL"] = application_details.get("url", "")
 
-                # Create listing body
+                # Format listing body
                 listing_body = (
                     f"Title: {listing.get('headline', 'No Title')}\n"
                     f"Company: {metadata['Company']}\n"
-                    f"Location: {metadata['Location']}\n"
                     f"Occupation: {metadata['Occupation']}\n\n"
                     f"Description:\n{listing.get('description', {}).get('text', 'No Description')}"
                 )
 
-            elif source_name == "job_posting_feed":
-                listing_id = listing.get("id")
-                date_str = listing.get("posted_at")
-                if date_str:
-                    try:
-                        listing_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                    except:
-                        listing_date = datetime.now()
+                return listing_id, listing_date, listing_body, metadata
 
-                # Extract metadata
-                metadata = {
-                    "Company": listing.get("company", {}).get("name", "No Company"),
-                    "Location": listing.get("location", {}).get("name", "No Location"),
-                    "Country": "Sweden" if "sweden" in str(listing.get("location", {})).lower() else "Unknown"
-                }
+            else:
+                return None, None, "", {}
 
-                listing_body = (
-                    f"Title: {listing.get('title', 'No Title')}\n"
-                    f"Company: {metadata['Company']}\n"
-                    f"Location: {metadata['Location']}\n\n"
-                    f"Description:\n{listing.get('description', 'No Description')}"
-                )
         except Exception as e:
             print(f"Error extracting info from {source_name} listing: {e}")
-
-        return listing_id, listing_date, listing_body, metadata
+            return None, None, "", {}
 
     def _is_duplicate(self, source_name, listing_id):
-        """Check if a listing with the given ID already exists
-
-        Args:
-            source_name (str): Name of the source API
-            listing_id (str): The ID of the listing to check
-
-        Returns:
-            bool: True if the listing already exists, False otherwise
-        """
-        # Check if the listing exists in our index
+        """Check if a listing already exists"""
         return f"{source_name}_{listing_id}" in self.listings_index
 
     def _save_listings_index(self):
-        """Save the listings index to a file"""
+        """Save the listing index to a file"""
         try:
             with open(self.index_file, 'w', encoding='utf-8') as f:
                 json.dump(self.listings_index, f, indent=2)
@@ -522,73 +353,42 @@ class ApiService:
             print(f"Error saving listings index: {e}")
 
     def get_saved_listings(self, filter_params=None):
-        """Get saved job listings, optionally filtered
-
-        Args:
-            filter_params (dict, optional): Filtering parameters
-                - date_from: Start date
-                - date_to: End date
-                - sources: List of sources to include
-                - location: Location filter
-
-        Returns:
-            dict: Information about all saved job listings
-        """
+        """Get saved listings, optionally filtered"""
         if not filter_params:
             return self.listings_index
 
-        # Apply filters
         filtered_listings = {}
         for key, listing in self.listings_index.items():
-            # Check source filter
+            # Filter by source if specified
             if filter_params.get("sources") and listing["source"] not in filter_params["sources"]:
                 continue
 
-            # Check date filter
+            # Filter by date range if specified
             if filter_params.get("date_from") or filter_params.get("date_to"):
                 try:
                     listing_date = datetime.strptime(listing["date"], "%Y%m%d").date()
-
                     if filter_params.get("date_from") and listing_date < filter_params["date_from"]:
                         continue
-
                     if filter_params.get("date_to") and listing_date > filter_params["date_to"]:
                         continue
                 except:
-                    # If we can't parse the date, include it anyway
                     pass
 
-            # Check location filter
+            # Filter by location if specified
             if filter_params.get("location") and listing.get("metadata", {}).get("Location"):
                 if filter_params["location"].lower() not in listing["metadata"]["Location"].lower():
                     continue
 
-            # Include this listing
             filtered_listings[key] = listing
 
         return filtered_listings
 
     def get_listing_content(self, file_path=None, listing_id=None, source_name=None):
-        """Get the content of a saved job listing
-
-        Args:
-            file_path (str, optional): Path to the job listing file
-            listing_id (str, optional): ID of the listing to retrieve
-            source_name (str, optional): Source name when using listing_id
-
-        Returns:
-            str: Content of the job listing
-        """
+        """Get the content of a specific saved listing"""
         try:
-            # If a file path is provided, use it directly
-            if file_path:
-                if os.path.exists(file_path):
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        return f.read()
-                else:
-                    return f"File not found: {file_path}"
-
-            # If listing ID and source name are provided, look up the file path
+            if file_path and os.path.exists(file_path):
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    return f.read()
             elif listing_id and source_name:
                 index_key = f"{source_name}_{listing_id}"
                 if index_key in self.listings_index:
@@ -596,31 +396,13 @@ class ApiService:
                     if os.path.exists(file_path):
                         with open(file_path, 'r', encoding='utf-8') as f:
                             return f.read()
-                    else:
-                        return f"File not found: {file_path}"
-                else:
-                    return f"Listing {listing_id} from {source_name} not found"
 
-            else:
-                return "Please provide either a file path or a listing ID and source name"
-
+            return "Listing not found"
         except Exception as e:
-            print(f"Error reading listing: {e}")
             return f"Error reading listing: {e}"
 
     def clear_listings(self, filter_params=None):
-        """Clear saved listings, optionally based on filters
-
-        Args:
-            filter_params (dict, optional): Filtering parameters
-                - date_from: Start date
-                - date_to: End date
-                - sources: List of sources to include
-                - location: Location filter
-
-        Returns:
-            int: Number of listings removed
-        """
+        """Clear all or filtered listings"""
         if not filter_params:
             # Clear all listings
             if os.path.exists(self.listings_dir):
@@ -628,13 +410,12 @@ class ApiService:
                 os.makedirs(self.listings_dir)
             self.listings_index = {}
             self._save_listings_index()
-            return len(self.listings_index)
+            return 0
 
-        # Get listings to remove
+        # Clear filtered listings
         to_remove = self.get_saved_listings(filter_params)
         removed_count = 0
 
-        # Remove each listing
         for key, listing in to_remove.items():
             file_path = listing["file_path"]
             if os.path.exists(file_path):
@@ -643,40 +424,5 @@ class ApiService:
                 del self.listings_index[key]
                 removed_count += 1
 
-        # Save updated index
         self._save_listings_index()
         return removed_count
-
-    def export_listings(self, output_path, filter_params=None):
-        """Export listings to a directory
-
-        Args:
-            output_path (str): Directory to export to
-            filter_params (dict, optional): Filtering parameters
-
-        Returns:
-            int: Number of listings exported
-        """
-        # Create the output directory if it doesn't exist
-        os.makedirs(output_path, exist_ok=True)
-
-        # Get listings to export
-        if filter_params:
-            listings = self.get_saved_listings(filter_params)
-        else:
-            listings = self.listings_index
-
-        # Export each listing
-        exported_count = 0
-        for key, listing in listings.items():
-            src_path = listing["file_path"]
-            if os.path.exists(src_path):
-                # Create destination path
-                dest_filename = os.path.basename(src_path)
-                dest_path = os.path.join(output_path, dest_filename)
-
-                # Copy the file
-                shutil.copy2(src_path, dest_path)
-                exported_count += 1
-
-        return exported_count

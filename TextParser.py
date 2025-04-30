@@ -2,152 +2,179 @@ import re
 
 
 class TextParser:
-    """ Class used to identify roles in job ads, and whether it lists
-    prompt engineering related skills in required competencies.
-    Improved to prioritize specific roles over generic ones.
-    """
 
     def __init__(self):
-        # Roles organized by specificity - more specific roles first
-        # Each group is progressively more generic
-        self.role_hierarchy = [
-            # Group 1: Very specific specialized roles
+        # role tiers from specific to generic
+        self.role_tiers = [
             [
-                "ai-arkitekt", "frontend-arkitekt", "backend-arkitekt", "devops-arkitekt",
                 "ai architect", "frontend architect", "backend architect", "devops architect",
-                "senior ai-utvecklare", "senior frontend-utvecklare", "senior backend-utvecklare",
                 "senior ai developer", "senior frontend developer", "senior backend developer",
-                "lead developer", "lead utvecklare", "tech lead"
+                "lead developer", "tech lead", "nlp specialist"
             ],
-            # Group 2: Specific technology domains
             [
-                "machine learning engineer", "ml engineer", "ml-ingenjör", "datavetare",
-                "data scientist", "data engineer", "dataingenjör", "nlp specialist",
-                "frontend-utvecklare", "frontendutvecklare", "front-end developer", "frontend developer",
-                "backend-utvecklare", "backendutvecklare", "back-end developer", "backend developer",
-                "fullstack-utvecklare", "fullstackutvecklare", "full-stack developer", "fullstack developer",
-                "ai-utvecklare", "ai developer", "ai engineer", "ai-ingenjör", "ml-utvecklare", "ml developer"
+                "machine learning engineer", "ml engineer", "data scientist", "data engineer",
+                "frontend developer", "backend developer", "fullstack developer",
+                "ai developer", "ai engineer", "ml developer", "project manager"
             ],
-            # Group 3: Common specific job titles
             [
-                "systemarkitekt", "system architect", "mjukvaruarkitekt", "software architect",
-                "systemutvecklare", "system developer", "mjukvaruutvecklare", "software developer",
-                "programmerare", "programmer", "devops engineer", "devops-ingenjör",
-                "mjukvaruingenjör", "software engineer"
+                "system architect", "software architect", "system developer", "software developer",
+                "programmer", "devops engineer", "software engineer"
             ],
-            # Group 4: Most generic roles (last resort)
             [
-                "utvecklare", "developer", "engineer", "ingenjör", "arkitekt", "architect"
+                "developer", "engineer", "architect"
             ]
         ]
 
-        # Flatten role hierarchy for full-text searching
-        self.all_roles = []
-        for group in self.role_hierarchy:
-            self.all_roles.extend(group)
+        # swedish to english mapping
+        self.swedish_terms = {
+            "utvecklare": "developer",
+            "ingenjör": "engineer",
+            "arkitekt": "architect",
+            "datavetare": "data scientist",
+            "programmerare": "programmer",
+            "mjukvaru": "software",
+            "system": "system",
+            "frontend": "frontend",
+            "backend": "backend",
+            "fullstack": "fullstack",
+            "ai": "ai",
+            "ml": "ml",
+            "ledande": "lead",
+            "senior": "senior",
+            "devops": "devops",
+            "projektledare": "project manager"
+        }
 
-        # PE-related terms categorized according to the proposal's categories
+        # Add common compound words
+        self.compound_mappings = {
+            "systemutvecklare": "system developer",
+            "mjukvaruutvecklare": "software developer"
+        }
+
+        # pattern for swedish translation
+        self.swedish_pattern = re.compile(
+            r'\b(' + '|'.join(re.escape(term) for term in self.swedish_terms.keys()) + r')\b',
+            re.IGNORECASE
+        )
+
+        # create patterns for each tier
+        self.tier_patterns = []
+        for tier in self.role_tiers:
+            pattern = re.compile(
+                r'\b(' + '|'.join(re.escape(role) for role in tier) + r')\b',
+                re.IGNORECASE
+            )
+            self.tier_patterns.append(pattern)
+
+        # pe detection terms
         self.pe_terms = {
-            # Direct PE terms
             "direct_pe": [
-                "prompt engineering", "prompt design", "prompt utveckling", "prompt-engineering",
-                "prompt-design", "prompt optimization", "ai prompt", "llm prompt",
-                "prompt expert", "prompt specialist", "prompt creation", "prompt writing"
+                "prompt engineering", "prompt design", "ai prompt", "llm prompt",
+                "prompt expert", "prompt ingenjör"
             ],
-
-            # Related skills
-            "related_skills": [
-                "chatgpt", "gpt-3", "gpt-4", "github copilot", "copilot",
-                "ai pair programming", "llm integration", "claude", "openai",
-                "generative ai", "generativ ai", "large language model", "llm"
+            "llm_tools": [
+                "chatgpt", "gpt", "github copilot", "claude", "openai",
+                "anthropic", "midjourney", "dall-e", "stable diffusion"
+            ],
+            "generic_ai": [
+                "generative ai", "large language model", "llm", "genai",
+                "artificial intelligence", "artificiell intelligens"
             ]
         }
 
-        # Create PE pattern by combining all terms
-        all_pe_terms = []
-        for category, terms in self.pe_terms.items():
-            all_pe_terms.extend(terms)
-        self.pe_pattern = "|".join([re.escape(term) for term in all_pe_terms])
+        self._compile_pe_patterns()
 
-        # Create category patterns
+    def _compile_pe_patterns(self):
+
+        # combine all terms
+        all_terms = []
+        for category_terms in self.pe_terms.values():
+            all_terms.extend(category_terms)
+
+        # main pattern
+        self.pe_pattern = re.compile(
+            r'\b(' + '|'.join(re.escape(term) for term in all_terms) + r')\b',
+            re.IGNORECASE
+        )
+
+        # category patterns
         self.pe_category_patterns = {}
         for category, terms in self.pe_terms.items():
-            self.pe_category_patterns[category] = "|".join([re.escape(term) for term in terms])
+            self.pe_category_patterns[category] = re.compile(
+                r'\b(' + '|'.join(re.escape(term) for term in terms) + r')\b',
+                re.IGNORECASE
+            )
+
+    def _normalize_text(self, text):
+        if not text:
+            return ""
+
+        # Remove common prefixes
+        prefixes = ["occupation:", "job:", "title:", "position:", "role:"]
+        lower_text = text.lower()
+        for prefix in prefixes:
+            if lower_text.startswith(prefix):
+                text = text[len(prefix):].strip()
+                break
+
+        # Clean and normalize - now including slashes
+        text = re.sub(r'[-_/]', ' ', text.lower())
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        # Handle compound words before general translation
+        for compound, replacement in self.compound_mappings.items():
+            text = re.sub(r'\b' + re.escape(compound) + r'\b', replacement, text, flags=re.IGNORECASE)
+
+        # Translate Swedish terms
+        def replace_swedish(match):
+            return self.swedish_terms[match.group().lower()]
+
+        text = self.swedish_pattern.sub(replace_swedish, text)
+
+        return text
 
     def _extract_role(self, title, description):
-        """
-        Extract the most specific role from the job title and description.
-        Prioritizes title matches over description matches, and more specific roles over generic ones.
+        if not title and not description:
+            return "Other"
 
-        Parameters:
-        -----------
-        title : str
-            The job title
-        description : str
-            The job description
+        # check title first, then description
+        title_norm = self._normalize_text(title)
+        desc_norm = self._normalize_text(description)
 
-        Returns:
-        --------
-        str
-            The most specific role found
-        """
-        # Normalize text for comparison
-        title_lower = title.lower()
-        desc_lower = description.lower()
+        role = self._extract_from_text(title_norm)
 
-        # First try to find a role in the title (higher priority)
-        title_role = None
-        for group in self.role_hierarchy:
-            for role in group:
-                if role in title_lower:
-                    # Found a role in the title, prioritize this
-                    return role
+        if role == "Other" and description:
+            role = self._extract_from_text(desc_norm)
 
-        # If no role in title, check description and follow hierarchy
-        for group in self.role_hierarchy:
-            for role in group:
-                if role in desc_lower:
-                    return role
+        return role
 
-        # If no match found, use the title itself as fallback
-        return title
+    def _extract_from_text(self, text):
+        if not text:
+            return "Other"
+
+        # check each tier in order
+        for pattern in self.tier_patterns:
+            match = pattern.search(text)
+            if match:
+                return match.group().lower()
+
+        return "Other"
 
     def parse(self, title, text, date):
-        """ Method for finding role and mentions of PE-related skills in a job ad.
+        # extract role and pe skills
+        role = self._extract_role(title or "", text or "")
 
-        Parameters
-        ----------
-        * title: The title of the job ad.
-        * text: The text description of the job ad.
-        * date: The date when the job ad was created.
+        combined_text = f"{title or ''} {text or ''}"
+        has_pe = bool(self.pe_pattern.search(combined_text))
 
-        Returns
-        -------
-        dict: containing:
-            * role: The identified role in the job ad.
-            * PE: Boolean indicating whether the job ad mentions PE-related skills.
-            * date: The date when the job ad was created.
-            * pe_categories: Dictionary showing which PE categories were found.
-        """
-        # Extract role using the prioritized hierarchy
-        extracted_role = self._extract_role(title, text)
-
-        # Check if any PE term is mentioned
-        pe_match = re.search(self.pe_pattern, text, re.IGNORECASE)
-        has_pe = pe_match is not None
-
-        # Get detailed PE category matches
-        pe_categories = {}
-        for category, pattern in self.pe_category_patterns.items():
-            category_matches = re.search(pattern, text, re.IGNORECASE)
-            pe_categories[category] = category_matches is not None
-
-        # Create result dictionary with all needed data for research questions
-        result = {
-            "role": extracted_role,  # For RQ2 (now with better specificity)
-            "PE": has_pe,  # For RQ1
-            "date": date,  # For RQ3
-            "pe_categories": pe_categories  # For detailed analysis
+        pe_categories = {
+            category: bool(pattern.search(combined_text))
+            for category, pattern in self.pe_category_patterns.items()
         }
 
-        return result
+        return {
+            "role": role,
+            "PE": has_pe,
+            "date": date,
+            "pe_categories": pe_categories
+        }
