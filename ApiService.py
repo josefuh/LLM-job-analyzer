@@ -254,12 +254,10 @@ class ApiService:
             for listing in listings:
                 listing_id, listing_date, listing_body, metadata = self._extract_listing_info(source_name, listing)
 
-                if listing_id and not self._is_duplicate(source_name, listing_id):
+                #only save articles with identified date.
+                if listing_date and listing_id and not self._is_duplicate(source_name, listing_id):
 
-                    if listing_date:
-                        date_str = listing_date.strftime("%Y%m%d")
-                    else:
-                        date_str = "unknown_date"
+                    date_str = listing_date.strftime("%Y%m%d")
 
                     filename = f"{source_name}_{date_str}_{listing_id}.txt"
                     file_path = os.path.join(self.listings_dir, filename)
