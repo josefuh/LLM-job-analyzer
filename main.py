@@ -1037,8 +1037,8 @@ class Main(QMainWindow):
 
                 if self.barBox.isChecked() and num_axes >= 2:
                     try:
-                        bar_path = os.path.join(directory, f"role_distribution_{timestamp}.png")
                         # Create a new figure for just this plot
+                        bar_path = os.path.join(directory, f"role_distribution_{timestamp}.png")
                         bar_fig = plt.figure(figsize=(8, 6))
                         bar_ax = bar_fig.add_subplot(111)
 
@@ -1064,6 +1064,36 @@ class Main(QMainWindow):
                         bar_fig.savefig(bar_path, bbox_inches='tight', dpi=300)
                         plt.close(bar_fig)
                         self.add_status(f"Saved bar chart to {bar_path}")
+
+                        # --- separate graph for only SE roles related to PE ---
+                        bar_pe_path = os.path.join(directory, f"role_distribution_(PE)_{timestamp}.png")
+                        bar_pe_fig = plt.figure(figsize=(8, 6))
+                        bar_pe_ax = bar_pe_fig.add_subplot(111)
+
+                        # sort pe roles
+                        pe_roles = []
+
+                        for index, role in enumerate(self.canvas.bar_values[2]):
+                            pe_roles.append( (self.canvas.bar_values[2][index], self.canvas.bar_pe_names[index]) )
+
+                        pe_roles.sort(key=lambda value: value[0], reverse=True)
+
+                        pe_count = []
+                        pe_names = []
+                        for role, name in pe_roles:
+                            pe_count.append(role)
+                            pe_names.append(name)
+
+                        bar_pe_ax.bar(self.canvas.bar_pe_counter, pe_count, 0.35, label='PE Related')
+                        bar_pe_ax.set_xticks(self.canvas.bar_pe_counter)
+                        bar_pe_ax.set_xticklabels(pe_names, rotation=45, ha='right')
+
+                        bar_pe_ax.set_title("SE Roles with highest PE demand")
+                        bar_pe_ax.legend(loc='upper right')
+                        bar_pe_fig.savefig(bar_pe_path, bbox_inches='tight', dpi=300)
+                        plt.close(bar_pe_fig)
+                        self.add_status(f"Saved bar chart to {bar_pe_path}")
+
                     except Exception as e:
                         self.add_status(f"Error saving bar chart: {str(e)}")
 
