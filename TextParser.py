@@ -33,7 +33,7 @@ class TextParser:
             "datavetare": "data scientist",
             "programmerare": "programmer",
             "mjukvaru": "software",
-            "system": "system",
+            #"system": "system",
             "frontend": "frontend",
             "backend": "backend",
             "fullstack": "fullstack",
@@ -42,13 +42,16 @@ class TextParser:
             "ledande": "lead",
             "senior": "senior",
             "devops": "devops",
-            "projektledare": "project manager"
+            "projektledare": "project manager",
         }
 
         # Add common compound words
         self.compound_mappings = {
             "systemutvecklare": "system developer",
-            "mjukvaruutvecklare": "software developer"
+            "mjukvaruutvecklare": "software developer",
+            "systemingenjör":"system engineer",
+            "systemvetare":"system architect",
+            "fullstackutvecklare":"fullstack developer"
         }
 
         # pattern for swedish translation
@@ -157,6 +160,10 @@ class TextParser:
             match = pattern.search(text)
             if match:
                 return match.group().lower()
+
+        match = self.swedish_pattern.search(text)
+        if match:
+            return self._normalize_text(match.group().lower())
 
         return "Other"
 

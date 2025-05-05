@@ -208,6 +208,9 @@ class ListingBrowser(QWidget):
                     # Parse with TextParser
                     parsed = self.parser.parse(title, description, date_str)
 
+                    if parsed['role'] == 'Other':
+                        continue
+
                     # Store data
                     listing_data = {
                         "id": listing_info["id"],
@@ -868,7 +871,8 @@ class Main(QMainWindow):
 
                     # Parse
                     parsed = self.parser.parse(title, description, date_str)
-                    analysis_data.append(json.dumps(parsed))
+                    if parsed['role'] != 'Other':
+                        analysis_data.append(json.dumps(parsed))
 
                 except Exception as e:
                     error_count += 1
