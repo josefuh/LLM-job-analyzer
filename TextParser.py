@@ -33,7 +33,7 @@ class TextParser:
             "datavetare": "data scientist",
             "programmerare": "programmer",
             "mjukvaru": "software",
-            #"system": "system",
+            "system": "system",
             "frontend": "frontend",
             "backend": "backend",
             "fullstack": "fullstack",
@@ -160,11 +160,11 @@ class TextParser:
             match = pattern.search(text)
             if match:
                 return match.group().lower()
-
+        """
         match = self.swedish_pattern.search(text)
         if match:
             return self._normalize_text(match.group().lower())
-
+        """
         return "Other"
 
     def parse(self, title, text, date):
