@@ -156,7 +156,7 @@ class DataAnalysis(FigureCanvasQTAgg):
                     self._plot_bar_chart(self.axes[i])
                 elif plot_type == "pie":
                     self._plot_pie_chart(self.axes[i])
-            except:
+            except Exception as e:
                 self.axes[i].clear()
                 self.axes[i].text(0.5, 0.5, f"Error creating {plot_type} chart",
                                   ha='center', va='center', fontsize=14, color='red')
@@ -197,10 +197,19 @@ class DataAnalysis(FigureCanvasQTAgg):
         non_pe_cumulative = np.cumsum(non_pe_values)
 
         # plot data
-        ax.plot(all_dates, pe_cumulative, label='PE Related',
+        ax.plot(all_dates, pe_values, label='PE Related',
                 color=self.colors['pe'], linewidth=2, marker='o', markersize=4)
-        ax.plot(all_dates, non_pe_cumulative, label='Non-PE Related',
+        ax.plot(all_dates, non_pe_values, label='Non-PE Related',
                 color=self.colors['non_pe'], linewidth=2, marker='o', markersize=4)
+
+        # trend line
+        all_dates_i = mdates.date2num(all_dates)
+
+        pe_trend = np.polyfit(all_dates_i, pe_values, 1)
+        non_pe_trend = np.polyfit(all_dates_i, non_pe_values,1)
+
+        ax.plot(all_dates,np.poly1d(pe_trend)(all_dates_i), label='PE Trend', color=self.colors['pe'], linestyle=':')
+        ax.plot(all_dates,np.poly1d(non_pe_trend)(all_dates_i), label='non-PE Trend', color=self.colors['non_pe'], linestyle=':')
 
         # add formatting
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
@@ -220,7 +229,8 @@ class DataAnalysis(FigureCanvasQTAgg):
 
         # add labels
         ax.set_xlabel('Date')
-        ax.set_ylabel('Cumulative Listings')
+        #ax.set_ylabel('Cumulative Listings')
+        ax.set_ylabel('Number Of Listings')
         ax.set_title('PE Skills Demand Over Time (RQ3)')
         ax.grid(True, alpha=0.3)
         ax.legend(loc='upper left')
@@ -255,8 +265,15 @@ class DataAnalysis(FigureCanvasQTAgg):
         pe_cumulative = np.cumsum(pe_values)
 
         # plot data
-        ax.plot(all_dates, pe_cumulative, label='PE Related',
+        ax.plot(all_dates, pe_values, label='PE Related',
                 color=self.colors['pe'], linewidth=2, marker='o', markersize=4)
+
+        # trend line
+        all_dates_i = mdates.date2num(all_dates)
+
+        pe_trend = np.polyfit(all_dates_i, pe_values, 1)
+
+        ax.plot(all_dates, np.poly1d(pe_trend)(all_dates_i), label='PE Trend', color=self.colors['pe'], linestyle=':')
 
         # add formatting
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
@@ -276,7 +293,7 @@ class DataAnalysis(FigureCanvasQTAgg):
 
         # labels
         ax.set_xlabel('Date')
-        ax.set_ylabel('Cumulative PE Listings')
+        ax.set_ylabel('Number Of PE Listings')
         ax.set_title('PE Skills Demand Trend (PE Only)')
         ax.grid(True, alpha=0.3)
 
