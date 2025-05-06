@@ -42,13 +42,16 @@ class TextParser:
             "ledande": "lead",
             "senior": "senior",
             "devops": "devops",
-            "projektledare": "project manager"
+            "projektledare": "project manager",
         }
 
         # Add common compound words
         self.compound_mappings = {
             "systemutvecklare": "system developer",
-            "mjukvaruutvecklare": "software developer"
+            "mjukvaruutvecklare": "software developer",
+            "systemingenjör":"system engineer",
+            "systemvetare":"system architect",
+            "fullstackutvecklare":"fullstack developer"
         }
 
         # pattern for swedish translation
@@ -77,12 +80,13 @@ class TextParser:
                 "anthropic", "midjourney", "dall-e", "stable diffusion"
             ],
             "generic_ai": [
-                "generative ai", "large language model", "llm", "genai",
-                "artificial intelligence", "artificiell intelligens"
+                "generative ai", "machine learning", "maskinlärning", "large language model", "llm", "genai",
+                "artificial intelligence", "artificiell intelligens", "ai"
             ]
         }
 
         self._compile_pe_patterns()
+        print("TextParser initialized with patterns")
 
     def _compile_pe_patterns(self):
 
@@ -106,6 +110,7 @@ class TextParser:
             )
 
     def _normalize_text(self, text):
+        print(f"Normalizing text: {text}")
         if not text:
             return ""
 
@@ -115,11 +120,13 @@ class TextParser:
         for prefix in prefixes:
             if lower_text.startswith(prefix):
                 text = text[len(prefix):].strip()
+                print(f"  Removed prefix: {text}")
                 break
 
         # Clean and normalize - now including slashes
         text = re.sub(r'[-_/]', ' ', text.lower())
         text = re.sub(r'\s+', ' ', text).strip()
+        print(f"  After cleaning: {text}")
 
         # Handle compound words before general translation
         for compound, replacement in self.compound_mappings.items():
@@ -130,10 +137,12 @@ class TextParser:
             return self.swedish_terms[match.group().lower()]
 
         text = self.swedish_pattern.sub(replace_swedish, text)
+        print(f"  After translation: {text}")
 
         return text
 
     def _extract_role(self, title, description):
+        print(f"Extracting role from title: '{title}' and description: '{description}'")
         if not title and not description:
             return "Other"
 
@@ -142,39 +151,50 @@ class TextParser:
         desc_norm = self._normalize_text(description)
 
         role = self._extract_from_text(title_norm)
+        print(f"  Role from title: {role}")
 
         if role == "Other" and description:
             role = self._extract_from_text(desc_norm)
+            print(f"  Role from description: {role}")
 
         return role
 
     def _extract_from_text(self, text):
+        print(f"Extracting from text: {text}")
         if not text:
             return "Other"
 
         # check each tier in order
-        for pattern in self.tier_patterns:
+        for i, pattern in enumerate(self.tier_patterns):
             match = pattern.search(text)
             if match:
-                return match.group().lower()
+                role = match.group().lower()
+                print(f"  Found role '{role}' in tier {i+1}")
+                return role
 
         return "Other"
 
     def parse(self, title, text, date):
+        print(f"\nParsing: title='{title}', text='{text}', date='{date}'")
         # extract role and pe skills
         role = self._extract_role(title or "", text or "")
 
         combined_text = f"{title or ''} {text or ''}"
+        print(f"Checking for PE skills in combined text: '{combined_text}'")
         has_pe = bool(self.pe_pattern.search(combined_text))
+        print(f"  Has PE skills: {has_pe}")
 
         pe_categories = {
             category: bool(pattern.search(combined_text))
             for category, pattern in self.pe_category_patterns.items()
         }
+        print(f"  PE categories: {pe_categories}")
 
-        return {
+        result = {
             "role": role,
             "PE": has_pe,
             "date": date,
             "pe_categories": pe_categories
         }
+        print(f"Parsing result: {result}")
+        return result
