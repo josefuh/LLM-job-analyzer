@@ -333,6 +333,7 @@ class DataAnalysis(FigureCanvasQTAgg):
 
     def _plot_pie_chart(self, ax):
         # plot overall distribution
+
         pe_count = len(self.processed_data['pe_roles'])
         non_pe_count = len(self.processed_data['all_roles']) - pe_count
         total = pe_count + non_pe_count
@@ -350,7 +351,7 @@ class DataAnalysis(FigureCanvasQTAgg):
         self.pie_sizes = sizes  # store for export
 
         ax.pie(sizes, labels=labels, colors=colors,
-               autopct=lambda pct: f"{pct:.1f}%\n({int(total * pct / 100)})",
+               autopct=lambda pct: f"{pct:.1f}%\n({round(total * pct / 100)})",
                startangle=90, wedgeprops={'edgecolor': 'w', 'linewidth': 1})
 
         ax.set_title('PE Skills in Job Listings (RQ1)')
