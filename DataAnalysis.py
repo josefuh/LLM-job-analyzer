@@ -365,12 +365,8 @@ class DataAnalysis(FigureCanvasQTAgg):
                     # create a simple text summary
                     text = "PE Categories:\n"
 
-                    pe_total_count = 0
                     for category, count in counts.items():
-                        pe_total_count += count
-
-                    for category, count in counts.items():
-                        pct = (count / pe_total_count) * 100
+                        pct = (count / pe_count) * 100
                         text += f"• {category.replace('_', ' ').title()}: {pct:.1f}% ({count})\n"
 
                     ax.text(1.1, 0.5, text, transform=ax.transAxes, fontsize=9,
