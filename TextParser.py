@@ -73,15 +73,16 @@ class TextParser:
         self.pe_terms = {
             "direct_pe": [
                 "prompt engineering", "prompt design", "ai prompt", "llm prompt",
-                "prompt expert", "prompt ingenjör"
+                "prompt expert", "prompt ingenjör", "prompt arkitekt", "prompt utvecklare",
+                "prompta", "prompt"
             ],
             "llm_tools": [
                 "chatgpt", "gpt", "github copilot", "claude", "openai",
                 "anthropic", "midjourney", "dall-e", "stable diffusion"
             ],
             "generic_ai": [
-                "generative ai", "machine learning", "maskinlärning", "large language model", "llm", "genai",
-                "artificial intelligence", "artificiell intelligens", "ai"
+                "generative ai", "generativ ai", "large language model", "llm", "genai",
+                "artificial intelligence", "artificiell intelligens"
             ]
         }
 

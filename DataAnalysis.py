@@ -372,3 +372,79 @@ class DataAnalysis(FigureCanvasQTAgg):
                     ax.text(1.1, 0.5, text, transform=ax.transAxes, fontsize=9,
                             verticalalignment='center',
                             bbox=dict(boxstyle='round', fc='white', alpha=0.8))
+
+
+    def _plot_prop_norm_pe_cumulative_time_series(self, ax):
+        dates = self.processed_data['dates']
+        pe_dates = self.processed_data['pe_dates']
+
+        if not dates:
+            ax.text(0.5, 0.5, "No date data available", ha='center', va='center')
+            ax.axis('off')
+            return
+
+        total_by_month = defaultdict(int)
+        for d in dates:
+            month = datetime(d.year, d.month, 1)
+            total_by_month[month] += 1
+
+        pe_by_month = defaultdict(int)
+        for d in pe_dates:
+            month = datetime(d.year, d.month, 1)
+            pe_by_month[month] += 1
+
+        all_months = sorted(set(total_by_month) | set(pe_by_month))
+        if not all_months:
+            ax.text(0.5, 0.5, "No PE or date data available", ha='center', va='center')
+            ax.axis('off')
+            return
+
+        prop = []
+        for m in all_months:
+            total = total_by_month.get(m, 0)
+            pe    = pe_by_month.get(m, 0)
+            # avoid division by zero
+            prop.append(pe / total if total > 0 else 0.0)
+
+        cum_prop = np.cumsum(prop)
+
+        ax.plot(all_months, cum_prop,
+                label='Cumulative Proportion PE',
+                color=self.colors['pe'], linewidth=2, marker='o', markersize=4)
+
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
+
+        # Reference lines
+        key_events = [
+            (datetime(2022, 11, 30), 'ChatGPT'),
+            (datetime(2023, 3, 14),  'GPT-4')
+        ]
+        for date, label in key_events:
+            if all_months[0] <= date <= all_months[-1]:
+                ax.axvline(x=date, color='gray', linestyle=':', alpha=0.7)
+                ax.text(date, ax.get_ylim()[1] * 0.9, label,
+                        rotation=90, fontsize=8, va='top')
+
+        ax.set_xlabel('Month')
+        ax.set_ylabel('Cumulative Proportion of PE')
+        ax.set_title('Normalized PE Skills Demand Trend')
+        ax.legend(loc='upper left')
+        ax.grid(True, alpha=0.3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
