@@ -904,7 +904,7 @@ class Main(QMainWindow):
             # Create and save individual charts
             if self.canvas.graphtype.get("time", True):
                 fig_time, ax_time = plt.subplots(figsize=(10, 6))
-                self.canvas._plot_time_series(ax_time)
+                self.canvas.plot_time_series(ax_time)
                 time_path = os.path.join(directory, f"time_series_{timestamp}.png")
                 fig_time.tight_layout()
                 fig_time.savefig(time_path, dpi=300)
@@ -913,7 +913,7 @@ class Main(QMainWindow):
 
             if self.canvas.graphtype.get("bar", True):
                 fig_bar, ax_bar = plt.subplots(figsize=(10, 6))
-                self.canvas._plot_bar_chart(ax_bar)
+                self.canvas.plot_bar_chart(ax_bar)
                 bar_path = os.path.join(directory, f"role_distribution_{timestamp}.png")
                 fig_bar.tight_layout()
                 fig_bar.savefig(bar_path, dpi=300)
@@ -922,7 +922,7 @@ class Main(QMainWindow):
 
             if self.canvas.graphtype.get("pie", True):
                 fig_pie, ax_pie = plt.subplots(figsize=(10, 6))
-                self.canvas._plot_pie_chart(ax_pie)
+                self.canvas.plot_pie_chart(ax_pie)
                 pie_path = os.path.join(directory, f"pe_distribution_{timestamp}.png")
                 fig_pie.tight_layout()
                 fig_pie.savefig(pie_path, dpi=300)
@@ -931,7 +931,7 @@ class Main(QMainWindow):
 
             #PE time graph, only in export
             fig_pe_time, ax_pe_time = plt.subplots(figsize=(10, 6))
-            self.canvas._plot_pe_time_series(ax_pe_time)
+            self.canvas.plot_pe_time_series(ax_pe_time)
             pe_time_path = os.path.join(directory, f"pe_only_time_series_{timestamp}.png")
             fig_pe_time.tight_layout()
             fig_pe_time.savefig(pe_time_path, dpi=300)
@@ -941,6 +941,26 @@ class Main(QMainWindow):
             # PE role chart, only in export
             bar_pe_path = os.path.join(directory, f"role_distribution_PE_{timestamp}.png")
             fig, ax = plt.subplots(figsize=(8, 6))
+
+            # Normalized time series graphs, cumulative, only in export
+            fig_time, ax_time = plt.subplots(figsize=(10, 6))
+            self.canvas.plot_prop_norm_pe_cumulative_time_series(ax_time)
+            fig_time.tight_layout()
+            fig_time.savefig(os.path.join(directory, f"time_series_normalized_cumulative_{timestamp}.png"), dpi=300)
+            plt.close(fig_time)
+            self.add_status(f"Saved normalized time series chart to {bar_pe_path}")
+
+            # Normalized time series graphs, cumulative, only in export
+            fig_time, ax_time = plt.subplots(figsize=(10, 6))
+            self.canvas.plot_prop_norm_pe_value_time_series(ax_time)
+            fig_time.tight_layout()
+            fig_time.savefig(os.path.join(directory, f"time_series_normalized_value_{timestamp}.png"), dpi=300)
+            plt.close(fig_time)
+            self.add_status(f"Saved normalized time series chart to {bar_pe_path}")
+
+
+
+
 
             # Sort and plot
             data = [(count, name) for count, name in zip(self.canvas.bar_values[2], self.canvas.bar_pe_names)]

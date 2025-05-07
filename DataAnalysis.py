@@ -151,11 +151,11 @@ class DataAnalysis(FigureCanvasQTAgg):
         for i, plot_type in enumerate(plots_to_show):
             try:
                 if plot_type == "time":
-                    self._plot_time_series(self.axes[i])
+                    self.plot_time_series(self.axes[i])
                 elif plot_type == "bar":
-                    self._plot_bar_chart(self.axes[i])
+                    self.plot_bar_chart(self.axes[i])
                 elif plot_type == "pie":
-                    self._plot_pie_chart(self.axes[i])
+                    self.plot_pie_chart(self.axes[i])
             except Exception as e:
                 self.axes[i].clear()
                 self.axes[i].text(0.5, 0.5, f"Error creating {plot_type} chart",
@@ -166,7 +166,7 @@ class DataAnalysis(FigureCanvasQTAgg):
         self.fig.tight_layout(pad=3.0)
         self.draw()
 
-    def _plot_time_series(self, ax):
+    def plot_time_series(self, ax):
         # plot time trends
         dates = self.processed_data['dates']
         if not dates:
@@ -238,7 +238,7 @@ class DataAnalysis(FigureCanvasQTAgg):
         # store for export
         self.pe_time_data = [all_dates, pe_cumulative]
 
-    def _plot_pe_time_series(self, ax):
+    def plot_pe_time_series(self, ax):
         # plot time trends for PE only
         dates = self.processed_data['dates']
         if not dates:
@@ -262,7 +262,6 @@ class DataAnalysis(FigureCanvasQTAgg):
 
         # prepare data for plotting
         pe_values = [pe_dates.get(date, 0) for date in all_dates]
-        pe_cumulative = np.cumsum(pe_values)
 
         # plot data
         ax.plot(all_dates, pe_values, label='PE Related',
@@ -297,7 +296,7 @@ class DataAnalysis(FigureCanvasQTAgg):
         ax.set_title('PE Skills Demand Trend (PE Only)')
         ax.grid(True, alpha=0.3)
 
-    def _plot_bar_chart(self, ax):
+    def plot_bar_chart(self, ax):
         # plot role distribution
         all_roles = Counter(self.processed_data['all_roles'])
         pe_roles = Counter(self.processed_data['pe_roles'])
@@ -348,7 +347,7 @@ class DataAnalysis(FigureCanvasQTAgg):
         ax.grid(True, alpha=0.3, axis='y')
         ax.legend()
 
-    def _plot_pie_chart(self, ax):
+    def plot_pie_chart(self, ax):
         # plot overall distribution
 
         pe_count = len(self.processed_data['pe_roles'])
@@ -390,8 +389,7 @@ class DataAnalysis(FigureCanvasQTAgg):
                             verticalalignment='center',
                             bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
-
-    def _plot_prop_norm_pe_cumulative_time_series(self, ax):
+    def plot_prop_norm_pe_cumulative_time_series(self, ax):
         dates = self.processed_data['dates']
         pe_dates = self.processed_data['pe_dates']
 
@@ -450,7 +448,69 @@ class DataAnalysis(FigureCanvasQTAgg):
         ax.legend(loc='upper left')
         ax.grid(True, alpha=0.3)
 
+    def plot_prop_norm_pe_value_time_series(self, ax):
+        dates = self.processed_data['dates']
+        pe_dates = self.processed_data['pe_dates']
 
+        if not dates:
+            ax.text(0.5, 0.5, "No date data available", ha='center', va='center')
+            ax.axis('off')
+            return
+
+        total_by_month = defaultdict(int)
+        for d in dates:
+            month = datetime(d.year, d.month, 1)
+            total_by_month[month] += 1
+
+        pe_by_month = defaultdict(int)
+        for d in pe_dates:
+            month = datetime(d.year, d.month, 1)
+            pe_by_month[month] += 1
+
+        all_months = sorted(set(total_by_month) | set(pe_by_month))
+        if not all_months:
+            ax.text(0.5, 0.5, "No PE or date data available", ha='center', va='center')
+            ax.axis('off')
+            return
+
+        prop_values = []
+        for m in all_months:
+            total = total_by_month.get(m, 0)
+            pe = pe_by_month.get(m, 0)
+            prop_values.append(pe / total if total > 0 else 0.0)
+
+        ax.plot(all_months, prop_values,
+                label='Monthly Proportion PE',
+                color=self.colors['pe'],
+                linewidth=2, marker='o', markersize=4)
+
+        x_nums = mdates.date2num(all_months)
+        slope, intercept = np.polyfit(x_nums, prop_values, 1)
+        trend_line = slope * x_nums + intercept
+        ax.plot(all_months, trend_line,
+                label='PE Proportion Trend',
+                color=self.colors['pe'],
+                linestyle=':')
+
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
+
+        key_events = [
+            (datetime(2022, 11, 30), 'ChatGPT'),
+            (datetime(2023, 3, 14), 'GPT-4')
+        ]
+        for date, label in key_events:
+            if all_months[0] <= date <= all_months[-1]:
+                ax.axvline(x=date, color='gray', linestyle=':', alpha=0.7)
+                ax.text(date, ax.get_ylim()[1] * 0.9, label,
+                        rotation=90, fontsize=8, va='top')
+
+        ax.set_xlabel('Month')
+        ax.set_ylabel('Proportion of PE Listings')
+        ax.set_title('Normalized PE Skills Demand Trend (Non-Cumulative)')
+        ax.legend(loc='upper left')
+        ax.grid(True, alpha=0.3)
 
 
 
